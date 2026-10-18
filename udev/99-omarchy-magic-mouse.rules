@@ -1,0 +1,4 @@
+# omarchy-magic-mouse: let the user session grab input devices and create the
+# virtual mouse it forwards through. `input` is a standard Arch group.
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", GROUP="input", MODE="0660"
