@@ -202,6 +202,34 @@ echo '0 EV_ABS ABS_MT_SLOT 0
 24 EV_SYN SYN_REPORT 0' | omarchy-magic-mouse simulate
 ```
 
+## Validating on real hardware
+
+The automated suite proves the system paths against a virtual device; the
+tactile layer and the install path deserve a pass on a real machine. After
+`./install.sh` and a re-login (for the `input` group):
+
+1. `omarchy-magic-mouse doctor` — every required check must be `[ ok ]`.
+2. `omarchy-magic-mouse devices` — your mouse must appear as
+   `apple_touch_mouse` or `wheel_mouse`, `MANAGED: yes`.
+3. `omarchy-magic-mouse log` — one `managing /dev/input/…` line per device.
+4. Feel, in order — each is one config knob:
+   - flick the Magic Mouse surface and lift: scroll should glide then stop
+     (`scroll.inertia.tau`, default 0.35s)
+   - drag slowly: 1:1 tracking, no loss at drag start
+   - ordinary wheel (if any): detents animate, never jump
+     (`scroll.smooth.duration_ms`)
+   - two-finger swipes: workspaces switch once per swipe, no false fires
+     while scrolling (`gestures.swipe.min_distance_mm`, `axis_ratio`)
+   - double tap: app-grid/menu action fires (`gestures.tap.*`)
+5. Kill it: `systemctl --user stop omarchy-magic-mouse` — the mouse must
+   immediately behave like stock Linux again.
+6. Note anything surprising in `omarchy-magic-mouse log` + the config you
+   used — that is the useful bug report.
+
+Known watch-item: Hyprland's `sendshortcut` can silently fail on native
+Wayland windows in some versions (browser back/forward defaults). If that
+happens, override `commands.browser_back`/`browser_forward` with `wtype`.
+
 ## Troubleshooting
 
 - **`doctor` fails on /dev/uinput or /dev/input**: finish the system install
