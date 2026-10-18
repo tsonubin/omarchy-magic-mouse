@@ -182,6 +182,7 @@ UI_DEV_SETUP = _IOW("U", 3, struct.calcsize("HHHH80sI"))
 UI_SET_EVBIT = _IOW("U", 100, 4)
 UI_SET_KEYBIT = _IOW("U", 101, 4)
 UI_SET_RELBIT = _IOW("U", 102, 4)
+UI_SET_ABSBIT = _IOW("U", 103, 4)
 
 # --- structs -------------------------------------------------------------------
 
@@ -191,10 +192,13 @@ INPUT_ID_FMT = "HHHH"
 UINPUT_SETUP_FMT = "HHHH80sI"
 ABSINFO_FMT = "iiiiii"
 
+BUS_USB = 0x03
+BUS_BLUETOOTH = 0x05
 BUS_VIRTUAL = 0x06
 
 INPUT_DIR = "/dev/input"
 UINPUT_PATH = "/dev/uinput"
+VIRTUAL_MOUSE_NAME = "Omarchy Magic Mouse"
 
 
 @dataclass(frozen=True)
@@ -384,23 +388,24 @@ class UInputMouse:
     companions the way the kernel documents (120 hi-res units per detent).
     """
 
-    def __init__(self, name="Omarchy Magic Mouse", clock=None):
+    def __init__(self, name=VIRTUAL_MOUSE_NAME, clock=None):
         self._clock = clock
         self.fd = os.open(UINPUT_PATH, os.O_WRONLY | os.O_NONBLOCK)
         self._scroll = ScrollAccumulator()
+        # UI_SET_*BIT takes the bit number by value, not as a pointer.
         for ev_bit, code in [
             (UI_SET_EVBIT, EV_KEY),
             (UI_SET_EVBIT, EV_REL),
             (UI_SET_EVBIT, EV_SYN),
         ]:
-            fcntl.ioctl(self.fd, ev_bit, struct.pack("i", code))
+            fcntl.ioctl(self.fd, ev_bit, code)
         for code in (BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA):
-            fcntl.ioctl(self.fd, UI_SET_KEYBIT, struct.pack("i", code))
+            fcntl.ioctl(self.fd, UI_SET_KEYBIT, code)
         for code in (REL_X, REL_Y, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES):
-            fcntl.ioctl(self.fd, UI_SET_RELBIT, struct.pack("i", code))
+            fcntl.ioctl(self.fd, UI_SET_RELBIT, code)
         setup = struct.pack(UINPUT_SETUP_FMT, BUS_VIRTUAL, 0x0001, 0x0001, 1, name.encode(), 0)
         fcntl.ioctl(self.fd, UI_DEV_SETUP, setup)
-        fcntl.ioctl(self.fd, UI_DEV_CREATE)
+        fcntl.ioctl(self.fd, UI_DEV_CREATE, 0)
 
     def write(self, ev_type, code, value, time=None):
         if time is None:

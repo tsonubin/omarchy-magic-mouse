@@ -40,6 +40,29 @@ class ScrollSessionTest(unittest.TestCase):
         events = feed(engine, b.up(0) + b.syn(), 0.016)
         self.assertEqual(events, [Tap()])  # stationary short touch = tap
 
+    def test_kernel_coalesced_stream_still_scrolls(self):
+        # the kernel input core drops unchanged ABS values: a touch down at
+        # (0, 0) and moves that leave X untouched arrive as sparse events,
+        # and the engine must still see the finger
+        from magicmouse import evdev as e
+
+        engine = make_engine()
+        engine.abs_event(e.ABS_MT_SLOT, 0)  # kernel would drop this (value 0)
+        engine.abs_event(e.ABS_MT_TRACKING_ID, 1)
+        # POSITION_X/Y == 0 are dropped entirely (unchanged from abs state)
+        self.assertEqual(engine.frame(0.0), [])
+        engine.abs_event(e.ABS_MT_POSITION_Y, 213)  # X unchanged -> omitted
+        events = engine.frame(0.008)
+        self.assertEqual(len(events), 1)
+        self.assertIsInstance(events[0], ScrollDelta)
+        self.assertAlmostEqual(events[0].dy_mm, 3.0, places=2)
+        up = [
+            e.InputEvent(e.EV_ABS, e.ABS_MT_TRACKING_ID, -1),
+            e.InputEvent(e.EV_SYN, e.SYN_REPORT, 0),
+        ]
+        events = feed(engine, up, 0.016)
+        self.assertEqual(events, [ScrollEnd()])
+
 
 class TapTest(unittest.TestCase):
     def test_double_tap(self):

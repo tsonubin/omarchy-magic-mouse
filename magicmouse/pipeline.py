@@ -57,6 +57,17 @@ def classify(info):
     return KIND_OTHER
 
 
+def should_manage(info, wanted_kinds):
+    """Whether the daemon should grab this device.
+
+    The daemon's own virtual mouse lives in ``/dev/input`` like any device;
+    grabbing it would feed its output back into itself.
+    """
+    if info.name == evdev.VIRTUAL_MOUSE_NAME:
+        return False
+    return classify(info) in wanted_kinds
+
+
 def synthetic_info(kind):
     """A fabricated :class:`magicmouse.evdev.DeviceInfo` for simulate/tests."""
     if kind == KIND_TOUCH_MOUSE:
@@ -167,6 +178,10 @@ class DevicePipeline:
         if ev_type == evdev.EV_SYN and code == evdev.SYN_REPORT:
             if self.touch is not None:
                 self._frame(now)
+            # forward the frame marker: without SYN_REPORT the kernel input
+            # core buffers the events and no consumer ever sees them
+            self.sink.write(ev_type, code, value)
+            return
 
     def _frame(self, now):
         for touch_event in self.touch.frame(now):

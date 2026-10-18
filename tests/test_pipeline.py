@@ -1,3 +1,4 @@
+import dataclasses
 import struct
 import unittest
 
@@ -8,6 +9,7 @@ from magicmouse.pipeline import (
     KIND_WHEEL_MOUSE,
     DevicePipeline,
     classify,
+    should_manage,
     synthetic_info,
 )
 from magicmouse.sink import RecordingSink
@@ -44,6 +46,14 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(classify(synthetic_info(KIND_TOUCH_MOUSE)), KIND_TOUCH_MOUSE)
         self.assertEqual(classify(synthetic_info(KIND_WHEEL_MOUSE)), KIND_WHEEL_MOUSE)
 
+    def test_never_grabs_our_own_virtual_mouse(self):
+        wanted = {KIND_TOUCH_MOUSE, KIND_WHEEL_MOUSE}
+        self.assertTrue(should_manage(synthetic_info(KIND_TOUCH_MOUSE), wanted))
+        sink = dataclasses.replace(
+            synthetic_info(KIND_TOUCH_MOUSE), name=evdev.VIRTUAL_MOUSE_NAME
+        )
+        self.assertFalse(should_manage(sink, wanted))
+
 
 class TouchMousePipelineTest(unittest.TestCase):
     def test_pointer_and_buttons_pass_through(self):
@@ -52,6 +62,27 @@ class TouchMousePipelineTest(unittest.TestCase):
         run(pipeline, clock, [evdev.InputEvent(evdev.EV_KEY, evdev.BTN_LEFT, 1)], 0.1)
         self.assertIn((evdev.EV_REL, evdev.REL_X, 5), sink.writes)
         self.assertIn((evdev.EV_KEY, evdev.BTN_LEFT, 1), sink.writes)
+
+    def test_frame_marker_is_forwarded(self):
+        # without SYN_REPORT on the output stream the kernel input core
+        # buffers events and no consumer ever sees them
+        pipeline, sink, _, clock = make_pipeline()
+        run(
+            pipeline,
+            clock,
+            [
+                evdev.InputEvent(evdev.EV_REL, evdev.REL_X, 5),
+                evdev.InputEvent(evdev.EV_SYN, evdev.SYN_REPORT, 0),
+            ],
+            0.0,
+        )
+        self.assertEqual(
+            sink.writes,
+            [
+                (evdev.EV_REL, evdev.REL_X, 5),
+                (evdev.EV_SYN, evdev.SYN_REPORT, 0),
+            ],
+        )
 
     def test_kernel_wheel_emulation_is_dropped(self):
         pipeline, sink, _, clock = make_pipeline()
@@ -66,7 +97,8 @@ class TouchMousePipelineTest(unittest.TestCase):
             0.0,
         )
         self.assertEqual(sink.scrolls, [])
-        self.assertEqual(sink.writes, [])
+        # scroll events are dropped, but the frame marker still passes through
+        self.assertEqual(sink.writes, [(evdev.EV_SYN, evdev.SYN_REPORT, 0)])
 
     def test_touch_drag_scrolls_with_natural_sign(self):
         pipeline, sink, _, clock = make_pipeline(natural=True)

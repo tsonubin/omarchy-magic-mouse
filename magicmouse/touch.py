@@ -78,6 +78,7 @@ class TouchEngine:
 
         self._slots = {}
         self._current_slot = 0
+        self._last_abs = {}  # kernel-level per-code abs state (see abs_event)
 
         # session state
         self._mode = None  # None | "scroll" | "gesture" | "done" | "abort"
@@ -91,13 +92,20 @@ class TouchEngine:
     # --- MT slot protocol ----------------------------------------------------
 
     def abs_event(self, code, value):
+        # The kernel input core drops unchanged ABS values (fuzz=0 dedup), so
+        # consumers see sparse streams: coordinates are per-code persistent
+        # state and a new contact inherits the last reported position.
+        self._last_abs[code] = value
         if code == evdev.ABS_MT_SLOT:
             self._current_slot = value
         elif code == evdev.ABS_MT_TRACKING_ID:
             if value == -1:
                 self._slots.pop(self._current_slot, None)
             else:
-                self._slots[self._current_slot] = _Contact(None, None)
+                self._slots[self._current_slot] = _Contact(
+                    self._last_abs.get(evdev.ABS_MT_POSITION_X, 0),
+                    self._last_abs.get(evdev.ABS_MT_POSITION_Y, 0),
+                )
         elif code in (evdev.ABS_MT_POSITION_X, evdev.ABS_MT_POSITION_Y):
             contact = self._slots.get(self._current_slot)
             if contact is not None:
@@ -138,6 +146,9 @@ class TouchEngine:
                 if moved <= self._tap_slop:
                     return []
                 self._mode = "scroll"
+                # scrolling is established: account for the whole drag since
+                # touch start, slop included
+                prev_x, prev_y = origin_x, origin_y
             self._scrolled_mm += abs(centroid_x - prev_x) + abs(centroid_y - prev_y)
             events.append(ScrollDelta(centroid_x - prev_x, centroid_y - prev_y))
             return events

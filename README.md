@@ -222,7 +222,8 @@ echo '0 EV_ABS ABS_MT_SLOT 0
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests   # 59 tests, no dependencies
+python3 -m unittest discover -s tests   # 62 tests, no dependencies
+test/e2e/run.sh                         # end-to-end suite (see below)
 ```
 
 The core is deterministic (all timing enters via injected clocks), so the
@@ -231,6 +232,31 @@ full event pipeline are tested with synthetic input streams. `magicmouse/evdev.p
 speaks the kernel UAPI directly; its ioctl numbers and struct layout are
 pinned by tests against the kernel's stable ABI.
 
+### End-to-end: an emulated Omarchy environment
+
+Unit tests cannot prove system behaviour, so `test/e2e/` runs the daemon
+against the **real kernel input core** inside a container with the **real
+Omarchy stack** (Arch Linux ARM, the `omarchy` packages from
+`pkgs.omarchy.org`, Omarchy's Hyprland build, quickshell): a virtual Magic
+Mouse emits events through `uinput` exactly like the `hid-magicmouse` driver,
+the daemon grabs and re-emits them, and the assertions read real state —
+Hyprland's active workspace, the Omarchy menu surface via `hyprctl layers`,
+and libinput's normalized stream. Ten scenarios cover pointer passthrough,
+grab-release-on-crash, inertial scrolling, scroll direction, smooth wheel,
+swipe→workspace switching, hotplug, the real `omarchy menu` action layer, and
+the third-party consumer view.
+
+```bash
+sudo modprobe uinput
+test/e2e/run.sh        # first run downloads + caches an ALARM rootfs (~830MB)
+```
+
+Details, scenario table, and the rig's boundaries: [`test/e2e/README.md`](test/e2e/README.md).
+This rig caught four real bugs the unit tests could not: `UI_SET_*BIT` uioctl
+argument passing, missing `EV_SYN` forwarding (the kernel buffers events
+without a frame marker, so consumers saw nothing), kernel ABS-value coalescing
+in the touch engine, and scroll-start slop eating the first millimetres.
+
 Layout: `magicmouse/` (package: `evdev`, `config`, `touch`, `scrolling`,
 `actions`, `pipeline`, `sink`, `service`, `cli`), `bin/`, `systemd/`, `udev/`,
-`system/`, `tests/`.
+`system/`, `tests/`, `test/e2e/`.

@@ -16,7 +16,7 @@ import time
 from . import evdev
 from .actions import ActionDispatcher
 from .config import MANAGEABLE_KINDS
-from .pipeline import DevicePipeline, classify
+from .pipeline import DevicePipeline, classify, should_manage
 
 RESCAN_INTERVAL = 2.0
 TICK_INTERVAL = 1 / 60
@@ -53,9 +53,9 @@ class Service:
         wanted = set(self.cfg["devices"]["manage"]) & set(MANAGEABLE_KINDS)
         present = set()
         for info in evdev.list_devices():
-            kind = classify(info)
-            if kind not in wanted:
+            if not should_manage(info, wanted):
                 continue
+            kind = classify(info)
             present.add(info.path)
             if info.path in self._devices:
                 continue
