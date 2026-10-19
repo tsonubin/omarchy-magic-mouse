@@ -10,7 +10,9 @@ import errno
 import fcntl
 import glob
 import os
+import select
 import struct
+import time
 from collections import namedtuple
 from dataclasses import dataclass, field
 
@@ -341,6 +343,25 @@ class Device:
             pass
 
 
+def _write_all(fd, buf, timeout=1.0):
+    """Write the whole buffer or raise.
+
+    ``os.write`` on the non-blocking uinput fd may write partially (or raise
+    ``BlockingIOError``), and a truncated ``input_event`` stream is silent
+    corruption for every consumer: complete the write or fail loudly.
+    """
+    view = memoryview(buf)
+    deadline = time.monotonic() + timeout
+    while view:
+        try:
+            written = os.write(fd, view)
+            view = view[written:]
+        except BlockingIOError:
+            if time.monotonic() > deadline:
+                raise OSError(errno.EIO, "uinput write stalled") from None
+            select.select([], [fd], [], 0.05)
+
+
 class ScrollAccumulator:
     """Turns hi-res scroll deltas into paired legacy + hi-res REL events.
 
@@ -420,7 +441,7 @@ class UInputMouse:
 
     def flush(self):
         if self._out:
-            os.write(self.fd, self._out)
+            _write_all(self.fd, self._out)
             self._out.clear()
 
     def write_event(self, event):
