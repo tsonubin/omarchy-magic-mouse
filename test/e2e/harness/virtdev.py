@@ -23,6 +23,7 @@ from magicmouse.evdev import (
     BTN_LEFT,
     BTN_RIGHT,
     BUS_BLUETOOTH,
+    BUS_USB,
     BUS_VIRTUAL,
     EV_ABS,
     EV_KEY,
