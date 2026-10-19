@@ -68,16 +68,19 @@ def _print_sink_line(clock):
 # --- system checks -----------------------------------------------------------
 
 
+def _probe(command, timeout=5):
+    """Run a query command with a bound: a wedged session bus must not hang
+    first-run diagnostics.  Returns None when the command fails or times out."""
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
 def _probe_natural_scroll():
     """The value Hyprland applies to every pointer device, including ours."""
-    try:
-        result = subprocess.run(
-            ["hyprctl", "getoption", "input:natural_scroll"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    result = _probe(["hyprctl", "getoption", "input:natural_scroll"])
+    if result is None:
         return None
     for line in result.stdout.splitlines():
         if line.strip().startswith("int:"):
@@ -173,27 +176,34 @@ def collect_checks(config_path=None):
         )
 
     if shutil.which("systemctl"):
-        enabled_probe = subprocess.run(
-            ["systemctl", "--user", "is-enabled", UNIT], capture_output=True, text=True
-        )
-        enabled = enabled_probe.stdout.strip() or ("not-found" if enabled_probe.returncode else "unknown")
-        active = subprocess.run(
-            ["systemctl", "--user", "is-active", UNIT], capture_output=True, text=True
-        ).stdout.strip() or "inactive"
-        if enabled in ("enabled", "static", "alias") and active == "active":
-            state, fix = "ok", ""
-        elif enabled == "not-found":
-            state, fix = "warn", "./install.sh  # installs the user service"
-        else:
-            state, fix = "warn", f"systemctl --user enable --now {UNIT}"
-        checks.append(
-            Check(
-                f"service ({UNIT})",
-                state,
-                fix=fix,
-                detail=f"enabled: {enabled}, active: {active}",
+        enabled_probe = _probe(["systemctl", "--user", "is-enabled", UNIT])
+        active_probe = _probe(["systemctl", "--user", "is-active", UNIT])
+        if enabled_probe is None or active_probe is None:
+            checks.append(
+                Check(
+                    f"service ({UNIT})",
+                    "warn",
+                    fix="systemctl --user is not responding — check the session dbus, then `systemctl --user status`",
+                    detail="query timed out",
+                )
             )
-        )
+        else:
+            enabled = enabled_probe.stdout.strip() or ("not-found" if enabled_probe.returncode else "unknown")
+            active = active_probe.stdout.strip() or "inactive"
+            if enabled in ("enabled", "static", "alias") and active == "active":
+                state, fix = "ok", ""
+            elif enabled == "not-found":
+                state, fix = "warn", "./install.sh  # installs the user service"
+            else:
+                state, fix = "warn", f"systemctl --user enable --now {UNIT}"
+            checks.append(
+                Check(
+                    f"service ({UNIT})",
+                    state,
+                    fix=fix,
+                    detail=f"enabled: {enabled}, active: {active}",
+                )
+            )
     else:
         checks.append(
             Check("service (systemd user)", "warn", fix="run the daemon manually: omarchy-magic-mouse run")
@@ -404,11 +414,13 @@ def cmd_devices(_args):
 def cmd_status(_args):
     enabled = active = "unknown"
     if shutil.which("systemctl"):
-        run = lambda verb: subprocess.run(  # noqa: E731
-            ["systemctl", "--user", verb, UNIT], capture_output=True, text=True
-        )
-        enabled = run("is-enabled").stdout.strip() or "unknown"
-        active = run("is-active").stdout.strip() or "unknown"
+        enabled_probe = _probe(["systemctl", "--user", "is-enabled", UNIT])
+        active_probe = _probe(["systemctl", "--user", "is-active", UNIT])
+        if enabled_probe is None or active_probe is None:
+            enabled = active = "not responding"
+        else:
+            enabled = enabled_probe.stdout.strip() or ("not-found" if enabled_probe.returncode else "unknown")
+            active = active_probe.stdout.strip() or "inactive"
     present = os.path.exists(CONFIG_PATH)
     print(f"service:  {active} (enabled: {enabled})")
     print(f"config:   {CONFIG_PATH} ({'present' if present else 'defaults in use'})")
@@ -425,7 +437,19 @@ def cmd_service(args):
     if not shutil.which("systemctl"):
         print("systemctl not found; start the daemon manually with `omarchy-magic-mouse run`", file=sys.stderr)
         return 1
-    result = subprocess.run(["systemctl", "--user", args.action, UNIT], check=False)
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", args.action, UNIT], check=False, timeout=30
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"systemctl --user {args.action} timed out — the session bus may be wedged",
+            file=sys.stderr,
+        )
+        return 1
+    except OSError as error:
+        print(f"cannot run systemctl: {error}", file=sys.stderr)
+        return 1
     return result.returncode
 
 
@@ -467,8 +491,13 @@ def cmd_setup(args):
     elif args.dry_run:
         print(f"   would run: systemctl --user enable --now {UNIT}")
     else:
-        result = subprocess.run(["systemctl", "--user", "enable", "--now", UNIT], check=False)
-        if result.returncode == 0:
+        try:
+            result = subprocess.run(
+                ["systemctl", "--user", "enable", "--now", UNIT], check=False, timeout=30
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            result = None
+        if result is not None and result.returncode == 0:
             print("   enabled and started")
         else:
             print(f"   could not enable — run: systemctl --user enable --now {UNIT}")
