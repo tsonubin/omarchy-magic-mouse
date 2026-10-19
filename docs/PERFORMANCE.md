@@ -78,3 +78,8 @@ Micro-benchmark (host Python, 500k constructions):
 sudo modprobe uinput
 test/e2e/run.sh bench
 ```
+
+Audit re-run (2026-10-19, after the async-dispatch/write-all/fd-index
+changes): pointer CPU 0.7µs per event, touch 1.0µs, idle/momentum
+unchanged — no regression; latency columns moved with machine load (p95
+1.8ms on a busy box vs 0.5ms quiet) and remain scheduling-bound.
