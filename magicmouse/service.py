@@ -6,11 +6,13 @@ stream; if the daemon dies the kernel releases every grab, so the hardware
 reverts to stock behaviour instead of going dead.
 """
 
+import fcntl
 import os
 import select
 import signal
 import socket
 import sys
+import tempfile
 import time
 
 from . import evdev
@@ -35,6 +37,33 @@ def sd_notify(message):
             sock.send(message.encode())
     except OSError:
         pass
+
+
+class InstanceLock:
+    """Advisory single-instance lock for the daemon.
+
+    Two daemons cannot share the grabbed devices — the second would fail
+    every grab and retry forever. ``flock`` is released by the kernel when
+    the holder dies, so there are no stale locks to clean up.
+    """
+
+    def __init__(self, path=None):
+        self.path = path or os.path.join(
+            os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir(),
+            "omarchy-magic-mouse.lock",
+        )
+        self._fd = None
+
+    def acquire(self):
+        try:
+            self._fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+            fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            if self._fd is not None:
+                os.close(self._fd)
+                self._fd = None
+            return False
 
 
 def _same_device(a, b):

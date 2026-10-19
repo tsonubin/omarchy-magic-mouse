@@ -26,7 +26,7 @@ from .pipeline import (
     should_manage,
     synthetic_info,
 )
-from .service import Service
+from .service import InstanceLock, Service
 from .sink import RecordingSink
 
 UNIT = "omarchy-magic-mouse.service"
@@ -266,6 +266,15 @@ def _write_default_config(path):
 def cmd_run(args):
     _require_config(args.config)
     cfg = load_config(args.config)
+    lock = InstanceLock()
+    if not lock.acquire():
+        print(f"another instance is already managing the input devices (lock: {lock.path})", file=sys.stderr)
+        print(
+            "hint: if the user service is running, try `omarchy-magic-mouse stop` "
+            "or check `systemctl --user status omarchy-magic-mouse`",
+            file=sys.stderr,
+        )
+        return 1
     log = lambda message: print(f"omarchy-magic-mouse: {message}", file=sys.stderr, flush=True)
     clock = time.monotonic
     t0 = time.monotonic()
