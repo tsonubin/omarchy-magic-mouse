@@ -50,13 +50,19 @@ class ConfigTest(unittest.TestCase):
                 _deep_merge(cfg, patch)
                 validate(cfg)
 
-    def test_nonstandard_json_numbers_are_rejected(self):
+    def test_invalid_json_is_rejected(self):
         import tempfile
 
-        for literal in ("NaN", "Infinity", "1e400"):
-            with self.subTest(literal=literal):
+        contents = (
+            '{"scroll": {"inertia": {"tau": NaN}}}',
+            '{"scroll": {"inertia": {"tau": Infinity}}}',
+            '{"scroll": {"inertia": {"tau": 1e400}}}',
+            '{"scroll": {"natural": true, "natural": false}}',
+        )
+        for content in contents:
+            with self.subTest(content=content):
                 with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
-                    handle.write('{"scroll": {"inertia": {"tau": %s}}}' % literal)
+                    handle.write(content)
                 try:
                     with self.assertRaises(ConfigError):
                         load_config(path=handle.name)

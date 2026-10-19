@@ -114,6 +114,15 @@ def _reject_constant(name):
     raise ValueError(f"{name} is not a valid JSON number")
 
 
+def _no_duplicate_keys(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError(f"duplicate key {key!r} (the file would silently take the last)")
+        obj[key] = value
+    return obj
+
+
 def _is_number(value):
     """A finite JSON number.  ``bool`` is an ``int`` in Python: exclude it."""
     return (
@@ -221,7 +230,11 @@ def load_config(path=None):
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8") as handle:
-                override = json.load(handle, parse_constant=_reject_constant)
+                override = json.load(
+                    handle,
+                    parse_constant=_reject_constant,
+                    object_pairs_hook=_no_duplicate_keys,
+                )
         except ValueError as error:
             raise ConfigError(f"{path}: invalid JSON: {error}") from error
         if not isinstance(override, dict):
