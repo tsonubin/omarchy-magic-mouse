@@ -486,7 +486,7 @@ def cmd_log(args):
             file=sys.stderr,
         )
         return 1
-    command = ["journalctl", "--user", "-u", UNIT]
+    command = ["journalctl", "--user", "-u", UNIT, "-n", str(args.lines)]
     if not args.no_follow:
         command.append("-f")
     try:
@@ -594,6 +594,7 @@ def main(argv=None):
 
     p_log = sub.add_parser("log", help="follow the service journal")
     p_log.add_argument("--no-follow", action="store_true", help="print recent entries and exit")
+    p_log.add_argument("--lines", type=int, default=200, metavar="N", help="entries to show (default: 200)")
     p_log.set_defaults(func=cmd_log)
 
     p_doc = sub.add_parser(
