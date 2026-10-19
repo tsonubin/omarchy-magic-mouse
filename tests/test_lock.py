@@ -49,6 +49,26 @@ class InstanceLockTest(unittest.TestCase):
         first.send_signal(signal.SIGTERM)
         first.wait(timeout=10)
 
+    def test_lock_path_failure_is_not_reported_as_contention(self):
+        home = tempfile.mkdtemp(prefix="mm-lock-path-test-")
+        missing_runtime = os.path.join(home, "missing-runtime")
+        result = subprocess.run(
+            [sys.executable, "-m", "magicmouse.cli", "run", "--dry-run"],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "HOME": home,
+                "XDG_RUNTIME_DIR": missing_runtime,
+                "PYTHONPATH": REPO,
+            },
+            cwd=REPO,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("cannot acquire instance lock", result.stderr)
+        self.assertIn("No such file or directory", result.stderr)
+        self.assertNotIn("another instance is already managing", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ stream; if the daemon dies the kernel releases every grab, so the hardware
 reverts to stock behaviour instead of going dead.
 """
 
+import errno
 import fcntl
 import os
 import select
@@ -53,16 +54,27 @@ class InstanceLock:
             "omarchy-magic-mouse.lock",
         )
         self._fd = None
+        self.error = None
+        self.already_locked = False
 
     def acquire(self):
+        self.error = None
+        self.already_locked = False
         try:
             self._fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+        except OSError as error:
+            self.error = error
+            return False
+        try:
             fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return True
-        except OSError:
-            if self._fd is not None:
-                os.close(self._fd)
-                self._fd = None
+        except OSError as error:
+            if error.errno in (errno.EACCES, errno.EAGAIN):
+                self.already_locked = True
+            else:
+                self.error = error
+            os.close(self._fd)
+            self._fd = None
             return False
 
 

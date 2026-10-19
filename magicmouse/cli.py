@@ -278,12 +278,23 @@ def cmd_run(args):
     cfg = load_config(args.config)
     lock = InstanceLock()
     if not lock.acquire():
-        print(f"another instance is already managing the input devices (lock: {lock.path})", file=sys.stderr)
-        print(
-            "hint: if the user service is running, try `omarchy-magic-mouse stop` "
-            "or check `systemctl --user status omarchy-magic-mouse`",
-            file=sys.stderr,
-        )
+        if lock.error is not None:
+            print(f"cannot acquire instance lock {lock.path}: {lock.error}", file=sys.stderr)
+            print(
+                "hint: ensure the runtime directory exists and is writable, "
+                "then retry",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"another instance is already managing the input devices (lock: {lock.path})",
+                file=sys.stderr,
+            )
+            print(
+                "hint: if the user service is running, try `omarchy-magic-mouse stop` "
+                "or check `systemctl --user status omarchy-magic-mouse`",
+                file=sys.stderr,
+            )
         return 1
     log = lambda message: print(f"omarchy-magic-mouse: {message}", file=sys.stderr, flush=True)
     clock = time.monotonic
