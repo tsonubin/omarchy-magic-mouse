@@ -194,13 +194,17 @@ def collect_checks(config_path=None):
 
     if shutil.which("hyprctl") and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         natural = _probe_natural_scroll()
-        if natural is True:
+        try:
+            our_natural = load_config(config_path)["scroll"]["natural"]
+        except ConfigError:
+            our_natural = False  # the config check above already reports it
+        if natural is True and our_natural:
             checks.append(
                 Check(
-                    "Hyprland natural_scroll does not double-flip scroll",
+                    "scroll direction flips exactly once",
                     "warn",
                     fix="disable input:natural_scroll for our virtual mouse, or set scroll.natural=false in the config",
-                    detail="Hyprland flips scroll for every device, including ours",
+                    detail="both Hyprland and the config flip scroll right now",
                 )
             )
         else:
@@ -399,8 +403,11 @@ def cmd_setup(args):
     print_checks(checks)
 
     print("\n3) service")
-    unit_path = os.path.join(os.path.expanduser("~"), ".config/systemd/user", UNIT)
-    if not os.path.exists(unit_path):
+    unit_paths = (
+        os.path.join(os.path.expanduser("~"), ".config/systemd/user", UNIT),
+        f"/usr/lib/systemd/user/{UNIT}",  # packaged installs
+    )
+    if not any(os.path.exists(path) for path in unit_paths):
         print(f"   user unit not installed — run ./install.sh (it also covers step 2)")
     elif not shutil.which("systemctl"):
         print("   systemctl unavailable — start manually: omarchy-magic-mouse run")

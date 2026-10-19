@@ -52,7 +52,7 @@ def classify(info):
         return KIND_TOUCH_MOUSE
     if has_mt and evdev.BTN_TOOL_FINGER in info.key_bits:
         return KIND_TRACKPAD
-    if evdev.REL_WHEEL in info.rel_bits and evdev.BTN_LEFT in info.key_bits:
+    if (evdev.REL_WHEEL in info.rel_bits or evdev.REL_WHEEL_HI_RES in info.rel_bits) and evdev.BTN_LEFT in info.key_bits:
         return KIND_WHEEL_MOUSE
     return KIND_OTHER
 

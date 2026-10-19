@@ -43,8 +43,18 @@ def run(pipeline, clock, events, at):
 
 class ClassificationTest(unittest.TestCase):
     def test_synthetic_devices_classify_as_expected(self):
-        self.assertEqual(classify(synthetic_info(KIND_TOUCH_MOUSE)), KIND_TOUCH_MOUSE)
-        self.assertEqual(classify(synthetic_info(KIND_WHEEL_MOUSE)), KIND_WHEEL_MOUSE)
+        hi_res_only = dataclasses.replace(
+            synthetic_info(KIND_WHEEL_MOUSE),
+            rel_bits=frozenset({evdev.REL_X, evdev.REL_Y, evdev.REL_WHEEL_HI_RES}),
+        )
+        cases = (
+            (synthetic_info(KIND_TOUCH_MOUSE), KIND_TOUCH_MOUSE),
+            (synthetic_info(KIND_WHEEL_MOUSE), KIND_WHEEL_MOUSE),
+            (hi_res_only, KIND_WHEEL_MOUSE),  # wheels advertised hi-res only
+        )
+        for info, expected in cases:
+            with self.subTest(device=info.name, rel=sorted(info.rel_bits)):
+                self.assertEqual(classify(info), expected)
 
     def test_only_real_hardware_is_managed(self):
         wanted = {KIND_TOUCH_MOUSE, KIND_WHEEL_MOUSE}
