@@ -1,35 +1,25 @@
 """Gesture action dispatch.
 
 An action spec is ``{"name": ..., "command": [...] | None}`` as produced by
-:func:`magicmouse.config.resolve_actions`.  Commands run out of the input
-path's way as far as possible: failures are logged, never raised, so a broken
-command cannot wedge scrolling.
+:func:`magicmouse.config.resolve_actions`.  Commands run off the input path:
+``invoke`` returns immediately and completion is reported from a worker
+thread, so a slow or hung action can never stall scrolling or the pointer.
+Failures are logged, never raised.
 """
 
 import subprocess
+import threading
 
 DEFAULT_RUN_TIMEOUT = 2.0
 
 
-def _run_command(command):
-    result = subprocess.run(
-        command,
-        timeout=DEFAULT_RUN_TIMEOUT,
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
-    return result.returncode, result.stderr.decode("utf-8", "replace").strip()
-
-
 class ActionDispatcher:
-    def __init__(self, runner=None, dry_run=False, log=None):
-        self._runner = runner or _run_command
+    def __init__(self, dry_run=False, log=None):
         self._dry_run = dry_run
         self._log = log or (lambda message: None)
 
     def invoke(self, spec):
-        """Run a resolved action spec; returns True when a command ran."""
+        """Run a resolved action spec; returns True when a command was spawned."""
         name = spec.get("name", "custom")
         command = spec.get("command")
         if not command:
@@ -38,10 +28,23 @@ class ActionDispatcher:
         if self._dry_run:
             return False
         try:
-            returncode, stderr = self._runner(command)
+            self._spawn(command)
         except Exception as error:  # noqa: BLE001 - the show must go on
             self._log(f"action {name} failed: {error}")
             return False
-        if returncode != 0:
-            self._log(f"action {name} exited {returncode}: {stderr}")
         return True
+
+    def _spawn(self, command):
+        proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+        def reap():
+            try:
+                _out, stderr = proc.communicate(timeout=DEFAULT_RUN_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                _out, stderr = proc.communicate()
+            if proc.returncode != 0:
+                detail = (stderr or b"").decode("utf-8", "replace").strip()
+                self._log(f"command {' '.join(command)} exited {proc.returncode}: {detail}")
+
+        threading.Thread(target=reap, daemon=True).start()
