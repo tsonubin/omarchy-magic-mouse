@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from magicmouse.config import (
@@ -40,11 +41,26 @@ class ConfigTest(unittest.TestCase):
             {"scroll": {"inertia": {"tau": 0}}},
             {"commands": {"app_grid": []}},
             {"devices": {"manage": ["apple_trackpad"]}},
+            {"scroll": {"touch": {"detents_per_mm": True}}},  # bool is an int
+            {"gestures": {"map": {"tap": {"command": ["bad\0cmd"]}}}},
         ):
             cfg = default_config()
             _deep_merge(cfg, patch)
             with self.assertRaises(ConfigError, msg=patch):
                 validate(cfg)
+
+    def test_nonstandard_json_numbers_are_rejected(self):
+        import tempfile
+
+        for literal in ("NaN", "Infinity", "1e400"):
+            with self.subTest(literal=literal):
+                with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+                    handle.write('{"scroll": {"inertia": {"tau": %s}}}' % literal)
+                try:
+                    with self.assertRaises(ConfigError):
+                        load_config(path=handle.name)
+                finally:
+                    os.unlink(handle.name)
 
     def test_custom_command_action(self):
         cfg = default_config()
