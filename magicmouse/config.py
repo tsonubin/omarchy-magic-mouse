@@ -183,6 +183,11 @@ def validate(cfg):
 
     commands = cfg["commands"]
     for name, command in commands.items():
+        if name not in BUILTIN_ACTIONS:
+            errors.append(
+                "commands: unknown action %r (valid: %s)" % (name, ", ".join(BUILTIN_ACTIONS))
+            )
+            continue
         if name != "none" and not _is_command(command):
             errors.append(f"commands.{name} must be a non-empty list of strings")
         if name == "none" and command != []:

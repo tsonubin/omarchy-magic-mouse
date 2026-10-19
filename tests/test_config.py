@@ -40,13 +40,14 @@ class ConfigTest(unittest.TestCase):
             {"gestures": {"map": {"sideways": "none"}}},
             {"scroll": {"inertia": {"tau": 0}}},
             {"commands": {"app_grid": []}},
+            {"commands": {"app-grid": ["true"]}},  # typo: silently dead before
             {"devices": {"manage": ["apple_trackpad"]}},
             {"scroll": {"touch": {"detents_per_mm": True}}},  # bool is an int
             {"gestures": {"map": {"tap": {"command": ["bad\0cmd"]}}}},
         ):
-            cfg = default_config()
-            _deep_merge(cfg, patch)
             with self.assertRaises(ConfigError, msg=patch):
+                cfg = default_config()
+                _deep_merge(cfg, patch)
                 validate(cfg)
 
     def test_nonstandard_json_numbers_are_rejected(self):
