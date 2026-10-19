@@ -458,6 +458,7 @@ def cmd_setup(args):
 
 def cmd_config(args):
     if args.show:
+        _require_config(args.config)
         print(json.dumps(load_config(args.config), indent=2))
         return 0
     path = args.config or CONFIG_PATH

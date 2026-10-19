@@ -13,10 +13,15 @@ class ConfigPathTest(unittest.TestCase):
     def test_missing_explicit_config_is_an_error(self):
         home = tempfile.mkdtemp(prefix="mm-cli-test-")
         missing = os.path.join(home, "no-such-config.json")
-        for command in ("run", "simulate"):
+        commands = (
+            ("run",),
+            ("simulate",),
+            ("config", "--show"),  # --show reads; bare config creates it
+        )
+        for command in commands:
             with self.subTest(command=command):
                 result = subprocess.run(
-                    [sys.executable, "-m", "magicmouse.cli", command, "--config", missing],
+                    [sys.executable, "-m", "magicmouse.cli", *command, "--config", missing],
                     capture_output=True,
                     text=True,
                     env={**os.environ, "HOME": home, "PYTHONPATH": REPO},
