@@ -61,9 +61,11 @@ def should_manage(info, wanted_kinds):
     """Whether the daemon should grab this device.
 
     The daemon's own virtual mouse lives in ``/dev/input`` like any device;
-    grabbing it would feed its output back into itself.
+    grabbing it would feed its output back into itself.  The same goes for
+    other userspace virtual devices (ydotool, input remappers): they report
+    ``BUS_VIRTUAL``, which no real hardware does, so they are never managed.
     """
-    if info.name == evdev.VIRTUAL_MOUSE_NAME:
+    if info.name == evdev.VIRTUAL_MOUSE_NAME or info.bustype == evdev.BUS_VIRTUAL:
         return False
     return classify(info) in wanted_kinds
 

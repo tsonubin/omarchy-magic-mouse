@@ -46,13 +46,17 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(classify(synthetic_info(KIND_TOUCH_MOUSE)), KIND_TOUCH_MOUSE)
         self.assertEqual(classify(synthetic_info(KIND_WHEEL_MOUSE)), KIND_WHEEL_MOUSE)
 
-    def test_never_grabs_our_own_virtual_mouse(self):
+    def test_only_real_hardware_is_managed(self):
         wanted = {KIND_TOUCH_MOUSE, KIND_WHEEL_MOUSE}
-        self.assertTrue(should_manage(synthetic_info(KIND_TOUCH_MOUSE), wanted))
-        sink = dataclasses.replace(
-            synthetic_info(KIND_TOUCH_MOUSE), name=evdev.VIRTUAL_MOUSE_NAME
+        cases = (
+            # real hardware reports USB/Bluetooth buses
+            (dataclasses.replace(synthetic_info(KIND_TOUCH_MOUSE), bustype=evdev.BUS_BLUETOOTH), True),
+            (dataclasses.replace(synthetic_info(KIND_TOUCH_MOUSE), name=evdev.VIRTUAL_MOUSE_NAME), False),
+            (dataclasses.replace(synthetic_info(KIND_WHEEL_MOUSE), bustype=evdev.BUS_VIRTUAL), False),
         )
-        self.assertFalse(should_manage(sink, wanted))
+        for info, expected in cases:
+            with self.subTest(device=info.name, bustype=hex(info.bustype)):
+                self.assertEqual(should_manage(info, wanted), expected)
 
 
 class TouchMousePipelineTest(unittest.TestCase):
