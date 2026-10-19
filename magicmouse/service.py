@@ -15,7 +15,7 @@ import time
 
 from . import evdev
 from .actions import ActionDispatcher
-from .config import MANAGEABLE_KINDS
+from .config import ConfigError, MANAGEABLE_KINDS, load_config
 from .pipeline import DevicePipeline, classify, should_manage
 
 RESCAN_INTERVAL = 2.0
@@ -44,15 +44,38 @@ def _same_device(a, b):
 
 
 class Service:
-    def __init__(self, cfg, sink, dispatcher=None, log=None, clock=time.monotonic):
+    def __init__(self, cfg, sink, dispatcher=None, log=None, clock=time.monotonic, config_path=None):
         self.cfg = cfg
         self.sink = sink
         self.dispatcher = dispatcher or ActionDispatcher(log=log or _stderr)
         self.log = log or _stderr
         self.clock = clock
+        self._config_path = config_path
         self._devices = {}  # path -> (Device, DevicePipeline)
         self._by_fd = {}  # fileno -> (Device, DevicePipeline), rebuilt on churn
         self._stopping = False
+        self._reload_requested = False
+
+    def reload_config(self):
+        """SIGHUP contract: apply a valid config, keep the current one otherwise."""
+        try:
+            cfg = load_config(self._config_path)
+        except ConfigError as error:
+            self.log(f"config reload failed, keeping the current config: {error}")
+            return False
+        self.cfg = cfg
+        wanted = set(cfg["devices"]["manage"]) & set(MANAGEABLE_KINDS)
+        for path, (device, _pipeline) in list(self._devices.items()):
+            if not should_manage(device.info, wanted):
+                self._drop(path, "no longer managed under the new config")
+                continue
+            self._devices[path] = (
+                device,
+                DevicePipeline(device.info, cfg, self.sink, self.dispatcher, self.clock),
+            )
+        self._reindex()  # the fd map must point at the rebuilt pipelines
+        self.log("config reloaded")
+        return True
 
     # --- device management ----------------------------------------------------
 
@@ -103,13 +126,18 @@ class Service:
     def run_forever(self):
         signal.signal(signal.SIGTERM, self._handle_stop)
         signal.signal(signal.SIGINT, self._handle_stop)
-        signal.signal(signal.SIGCHLD, signal.SIG_IGN)  # action subprocesses reap
+        signal.signal(signal.SIGHUP, self._handle_reload)
+        # every action spawn owns a reap thread (see actions.py), so there is
+        # no SIGCHLD policy to set — ignoring SIGCHLD would break their waits
 
         self.scan()
         sd_notify("READY=1")
         last_scan = self.clock()
         try:
             while not self._stopping:
+                if self._reload_requested:
+                    self._reload_requested = False
+                    self.reload_config()
                 now = self.clock()
                 ticking = any(pipeline.needs_ticks() for _, pipeline in self._devices.values())
                 timeout = (
@@ -158,6 +186,9 @@ class Service:
 
     def _handle_stop(self, _signum, _frame):
         self._stopping = True
+
+    def _handle_reload(self, _signum, _frame):
+        self._reload_requested = True
 
 
 def _stderr(message):

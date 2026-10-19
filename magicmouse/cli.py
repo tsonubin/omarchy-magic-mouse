@@ -255,7 +255,7 @@ def cmd_run(args):
             print("run `omarchy-magic-mouse doctor` to diagnose permissions", file=sys.stderr)
             return 1
         dispatcher = ActionDispatcher(log=log)
-    service = Service(cfg, sink, dispatcher=dispatcher, log=log, clock=clock)
+    service = Service(cfg, sink, dispatcher=dispatcher, log=log, clock=clock, config_path=args.config)
     service.run_forever()
     return 0
 
