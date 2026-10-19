@@ -665,7 +665,12 @@ def main(argv=None):
     try:
         return args.func(args)
     except ConfigError as error:
-        print(f"config error: {error}", file=sys.stderr)
+        if len(error.problems) > 1:
+            print(f"config error: {error.path or 'configuration'}", file=sys.stderr)
+            for problem in error.problems:
+                print(f"  - {problem}", file=sys.stderr)
+        else:
+            print(f"config error: {error}", file=sys.stderr)
         print("hint: `omarchy-magic-mouse config --show` prints the merged config", file=sys.stderr)
         return 2
     except KeyboardInterrupt:

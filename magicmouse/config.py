@@ -86,7 +86,15 @@ DEFAULTS = {
 
 
 class ConfigError(ValueError):
-    pass
+    """Configuration is unusable; ``problems`` lists every issue found."""
+
+    def __init__(self, message, problems=None, path=None):
+        self.problems = list(problems) if problems is not None else [message]
+        self.path = path
+        super().__init__(message)
+
+    def __str__(self):
+        return "; ".join(self.problems) if len(self.problems) > 1 else self.problems[0]
 
 
 def default_config():
@@ -219,7 +227,7 @@ def validate(cfg):
             errors.append(f"gestures.map.{gesture}: must be an action name or an object with a command")
 
     if errors:
-        raise ConfigError("; ".join(errors))
+        raise ConfigError("configuration is invalid", problems=errors)
     return cfg
 
 
@@ -246,7 +254,11 @@ def load_config(path=None):
             _deep_merge(cfg, override)
         except ConfigError as error:
             raise ConfigError(f"{path}: {error}") from error
-    return validate(cfg)
+    try:
+        return validate(cfg)
+    except ConfigError as error:
+        error.path = error.path or path
+        raise
 
 
 def resolve_actions(cfg):

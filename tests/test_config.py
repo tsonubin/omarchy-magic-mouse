@@ -84,6 +84,15 @@ class ConfigTest(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(path=directory)  # a directory is a clean error
 
+    def test_all_problems_are_reported(self):
+        cfg = default_config()
+        _deep_merge(cfg, {"gestures": {"fingers": 5}, "scroll": {"inertia": {"tau": -1}}})
+        with self.assertRaises(ConfigError) as caught:
+            validate(cfg)
+        self.assertEqual(len(caught.exception.problems), 2, "one round-trip must fix everything at once")
+        self.assertIn("gestures.fingers", str(caught.exception))
+        self.assertIn("scroll.inertia.tau", str(caught.exception))
+
     def test_custom_command_action(self):
         cfg = default_config()
         _deep_merge(
