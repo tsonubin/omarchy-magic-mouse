@@ -598,7 +598,11 @@ def main(argv=None):
     p_setup.add_argument("--dry-run", action="store_true", help="print planned actions; change nothing")
     p_setup.set_defaults(func=cmd_setup)
 
-    p_cfg = sub.add_parser("config", help="create/edit the config file")
+    p_cfg = sub.add_parser(
+        "config", help="create/edit the config file",
+        epilog="example: omarchy-magic-mouse config --show   # print the merged config",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_cfg.add_argument("--config", default=None)
     p_cfg.add_argument("--init", action="store_true", help="only write the default config")
     p_cfg.add_argument("--show", action="store_true", help="print the merged config")
