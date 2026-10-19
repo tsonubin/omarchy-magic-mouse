@@ -234,7 +234,14 @@ def print_checks(checks, heading=None):
 # --- commands ----------------------------------------------------------------
 
 
+def _require_config(path):
+    """An explicitly given config must exist: silent defaults would mask typos."""
+    if path is not None and not os.path.exists(path):
+        raise ConfigError(f"config file not found: {path}")
+
+
 def cmd_run(args):
+    _require_config(args.config)
     cfg = load_config(args.config)
     log = lambda message: print(f"omarchy-magic-mouse: {message}", file=sys.stderr, flush=True)
     clock = time.monotonic
@@ -279,6 +286,7 @@ def _parse_replay_line(line):
 
 
 def cmd_simulate(args):
+    _require_config(args.config)
     cfg = load_config(args.config)
     kind = SYNTHETIC_KINDS[args.device]
     clock = _Clock()
