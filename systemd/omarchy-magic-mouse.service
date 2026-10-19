@@ -10,6 +10,13 @@ ExecStart=/usr/bin/env python3 %h/.local/share/omarchy-magic-mouse/bin/omarchy-m
 Restart=always
 RestartSec=2
 Environment=PYTHONUNBUFFERED=1
+# Least privilege for a device-input daemon. Deliberately NOT sandboxed
+# further: action commands are user code and keep normal file access (no
+# ProtectSystem/ProtectHome), and a device allow-list would break the
+# dynamically created evdev nodes (no DevicePolicy).
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
 
 [Install]
 WantedBy=graphical-session.target
