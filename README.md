@@ -9,11 +9,30 @@ swipes on the mouse surface drive Mission Control and page navigation. Wayland
 compositors see only raw kernel events — libinput has no kinetic scrolling and
 Hyprland has no mouse-gesture layer. This daemon fills that gap in userspace.
 
+> **Status**: working and tested (68 unit tests + 10 end-to-end scenarios in
+> an emulated Omarchy environment). License: **pending decision by the
+> maintainer** — the repository currently has no license file.
+
+## Quick start
+
+```bash
+git clone https://github.com/tsonubin/omarchy-magic-mouse
+cd omarchy-magic-mouse
+./install.sh                    # files + udev rule + input group (asks sudo once)
+omarchy-magic-mouse setup       # guided first run: config, permissions, service
+omarchy-magic-mouse doctor      # must end with: all required checks passed
+```
+
+Then move your mouse: the surface (or wheel) should scroll with macOS-style
+glide. `omarchy-magic-mouse log` follows the daemon journal;
+`omarchy-magic-mouse setup --dry-run` previews every step without changing
+anything.
+
 ## Features
 
 - **Inertial scrolling** on the Magic Mouse touch surface: the scroll keeps
-  gliding after you lift your finger, with an exponential decay tuned like
-  macOS (`scroll.inertia`), stopping instantly on the next touch or click.
+  gliding after you lift your finger, with exponential decay tuned like macOS,
+  stopping instantly on the next touch or click.
 - **Smooth wheel scrolling** for ordinary mice: each wheel detent is animated
   into high-resolution scroll instead of jumping one line at a time.
 - **Swipe gestures** (two fingers on the Magic Mouse surface): switch
@@ -25,6 +44,28 @@ Hyprland has no mouse-gesture layer. This daemon fills that gap in userspace.
   evdev/uinput UAPI directly. If it crashes, the kernel drops the device grab
   and your mouse reverts to stock behaviour.
 
+## Gesture cheat sheet
+
+| Gesture (Magic Mouse surface) | Default action | Command run | Remap key |
+|---|---|---|---|
+| Two-finger swipe left | `workspace_next` | `hyprctl dispatch workspace e+1` | `gestures.map.swipe_left` |
+| Two-finger swipe right | `workspace_prev` | `hyprctl dispatch workspace e-1` | `gestures.map.swipe_right` |
+| Two-finger swipe up | `app_grid` | `omarchy-shell omarchy.dock apps` | `gestures.map.swipe_up` |
+| Two-finger swipe down | `omarchy_menu` | `omarchy menu toggle root` | `gestures.map.swipe_down` |
+| One-finger double tap | `smart_zoom` | `hyprctl dispatch sendshortcut CTRL, 0` | `gestures.map.double_tap` |
+| One-finger tap | `none` | — | `gestures.map.tap` |
+
+"Swipe left" means fingers move left. In macOS terms: swipes replace page
+navigation with workspace navigation, and the app grid/menu stand in for
+Mission Control / App Exposé, which Hyprland does not ship. Builtin actions:
+`workspace_next`, `workspace_prev`, `workspace_last`, `app_grid`,
+`omarchy_menu`, `browser_back`, `browser_forward`, `smart_zoom`, `none` — or
+map a gesture straight to a custom command:
+
+```json
+{ "gestures": { "map": { "double_tap": { "command": ["notify-send", "zoom"] } } } }
+```
+
 ## macOS vs Omarchy: where the behaviour lives
 
 | Concern | macOS | Omarchy (this plugin) |
@@ -35,21 +76,6 @@ Hyprland has no mouse-gesture layer. This daemon fills that gap in userspace.
 | Input permissions | TCC "Input Monitoring" prompt | udev rule + `input` group; the daemon grabs the device with `EVIOCGRAB` |
 | Scroll direction | "Natural scrolling" per device | `scroll.natural` in the plugin config (default `true`, like macOS) |
 | Extensibility | Fixed gestures | Every gesture maps to any command via `gestures.map` / `commands` |
-
-## Gesture defaults
-
-| Gesture (Magic Mouse surface) | Default action | Command run |
-|---|---|---|
-| Two-finger swipe left | `workspace_next` | `hyprctl dispatch workspace e+1` |
-| Two-finger swipe right | `workspace_prev` | `hyprctl dispatch workspace e-1` |
-| Two-finger swipe up | `app_grid` | `omarchy-shell omarchy.dock apps` |
-| Two-finger swipe down | `omarchy_menu` | `omarchy menu toggle root` |
-| One-finger double tap | `smart_zoom` | `hyprctl dispatch sendshortcut CTRL, 0` |
-| One-finger tap | `none` | — |
-
-"Swipe left" means fingers move left. In macOS terms: swipes replace page
-navigation with workspace navigation, and the app grid/menu stand in for
-Mission Control / App Exposé, which Hyprland does not ship.
 
 ## How it works
 
@@ -96,17 +122,16 @@ Invariants worth knowing: the daemon never grabs its own virtual mouse;
 device identity is re-checked on every rescan (event numbers are recycled);
 a removed device or a dead sink exits cleanly — the kernel releases grabs on
 exit, so the hardware always reverts to stock behaviour; action commands can
-never take the input path down.
+never take the input path down. Performance characteristics:
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Install
 
 ```bash
-git clone https://github.com/YOUR/omarchy-magic-mouse.git
-cd omarchy-magic-mouse
 ./install.sh
 ```
 
-This installs to `~/.local/share/omarchy-magic-mouse`, symlinks
+Installs to `~/.local/share/omarchy-magic-mouse`, symlinks
 `~/.local/bin/omarchy-magic-mouse` (Omarchy puts `~/.local/bin` on `PATH`),
 writes the default config to `~/.config/omarchy/magic-mouse.json`, and
 enables the `omarchy-magic-mouse.service` user unit (modeled on Omarchy's own
@@ -116,11 +141,7 @@ session services: `WantedBy=graphical-session.target`,
 The system part needs `sudo` once: the udev rule
 (`/etc/udev/rules.d/99-omarchy-magic-mouse.rules`) and `uinput` module
 loading (`/etc/modules-load.d/`), plus adding you to the `input` group.
-**Log out and back in** afterwards so the group applies, then check:
-
-```bash
-omarchy-magic-mouse doctor
-```
+**Log out and back in** afterwards so the group applies.
 
 Flags: `--no-system` (skip sudo parts), `--no-enable` (don't start the
 service yet), `--dry-run` (print planned actions, change nothing).
@@ -143,89 +164,119 @@ shell plugin can talk to this daemon.)
 
 `omarchy-magic-mouse config` creates the file and opens it in `$EDITOR`;
 changes apply on `systemctl --user restart omarchy-magic-mouse`.
-`config --show` prints the merged result; unknown keys and bad values are
-rejected with a precise error. Defaults shown:
+`config --show` prints the merged result. The file is strict JSON — unknown
+keys, wrong types, `NaN`/`Infinity` and NUL bytes are rejected with the exact
+path. Every option:
 
-```json
-{
-  "devices":  { "manage": ["apple_touch_mouse", "wheel_mouse"] },
-  "scroll": {
-    "natural": true,
-    "touch":   { "enabled": true, "detents_per_mm": 1.2 },
-    "smooth":  { "enabled": true, "duration_ms": 90 },
-    "inertia": { "enabled": true, "tau": 0.35, "min_velocity": 0.3, "max_duration_ms": 1500 }
-  },
-  "gestures": {
-    "enabled": true,
-    "fingers": 2,
-    "swipe": { "min_distance_mm": 5.0, "axis_ratio": 1.8, "max_duration_ms": 500 },
-    "tap":   { "max_duration_ms": 250, "slop_mm": 1.5,
-               "double_interval_ms": 350, "double_distance_mm": 5.0 },
-    "map": {
-      "swipe_left": "workspace_next", "swipe_right": "workspace_prev",
-      "swipe_up": "app_grid", "swipe_down": "omarchy_menu",
-      "double_tap": "smart_zoom", "tap": "none"
-    }
-  },
-  "commands": {
-    "workspace_next": ["hyprctl", "dispatch", "workspace", "e+1"],
-    "workspace_prev": ["hyprctl", "dispatch", "workspace", "e-1"],
-    "workspace_last": ["hyprctl", "dispatch", "workspace", "previous"],
-    "app_grid":       ["omarchy-shell", "omarchy.dock", "apps"],
-    "omarchy_menu":   ["omarchy", "menu", "toggle", "root"],
-    "browser_back":   ["hyprctl", "dispatch", "sendshortcut", "ALT, Left"],
-    "browser_forward":["hyprctl", "dispatch", "sendshortcut", "ALT, Right"],
-    "smart_zoom":     ["hyprctl", "dispatch", "sendshortcut", "CTRL, 0"],
-    "none": []
-  }
-}
-```
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `devices.manage` | list | `["apple_touch_mouse", "wheel_mouse"]` | device classes to grab and drive (`apple_trackpad`/`other` are recognized but cannot be managed) |
+| `scroll.natural` | bool | `true` | content tracks fingers (macOS direction); `false` = classic |
+| `scroll.touch.enabled` | bool | `true` | surface drags scroll |
+| `scroll.touch.detents_per_mm` | number | `1.2` | scroll speed of surface drags (wheel detents per mm of finger travel) |
+| `scroll.smooth.enabled` | bool | `true` | animate wheel detents instead of jumping |
+| `scroll.smooth.duration_ms` | number | `90` | length of one detent animation |
+| `scroll.inertia.enabled` | bool | `true` | momentum glide after a flick |
+| `scroll.inertia.tau` | number | `0.35` | seconds; decay time constant (bigger = longer glide) |
+| `scroll.inertia.min_velocity` | number | `0.3` | detents/second cutoff where momentum stops |
+| `scroll.inertia.max_duration_ms` | number | `1500` | hard cap on momentum length |
+| `gestures.enabled` | bool | `true` | swipe/tap recognition on touch surfaces |
+| `gestures.fingers` | int (2–3) | `2` | fingers required for swipes |
+| `gestures.swipe.min_distance_mm` | number | `5.0` | travel before a swipe fires |
+| `gestures.swipe.axis_ratio` | number | `1.8` | major/minor axis ratio; rejects diagonals |
+| `gestures.swipe.max_duration_ms` | number | `500` | swipes slower than this are ignored |
+| `gestures.tap.max_duration_ms` | number | `250` | max contact time for a tap |
+| `gestures.tap.slop_mm` | number | `1.5` | movement still counting as a tap |
+| `gestures.tap.double_interval_ms` | number | `350` | max gap between two taps |
+| `gestures.tap.double_distance_mm` | number | `5.0` | max distance between two taps |
+| `gestures.map.swipe_left` | action / `{"command": [...]}` | `workspace_next` | see the cheat sheet |
+| `gestures.map.swipe_right` | action / `{"command": [...]}` | `workspace_prev` | |
+| `gestures.map.swipe_up` | action / `{"command": [...]}` | `app_grid` | |
+| `gestures.map.swipe_down` | action / `{"command": [...]}` | `omarchy_menu` | |
+| `gestures.map.double_tap` | action / `{"command": [...]}` | `smart_zoom` | |
+| `gestures.map.tap` | action / `{"command": [...]}` | `none` | |
+| `commands.workspace_next` | list of strings | `["hyprctl", "dispatch", "workspace", "e+1"]` | what the action runs |
+| `commands.workspace_prev` | list of strings | `["hyprctl", "dispatch", "workspace", "e-1"]` | |
+| `commands.workspace_last` | list of strings | `["hyprctl", "dispatch", "workspace", "previous"]` | |
+| `commands.app_grid` | list of strings | `["omarchy-shell", "omarchy.dock", "apps"]` | |
+| `commands.omarchy_menu` | list of strings | `["omarchy", "menu", "toggle", "root"]` | |
+| `commands.browser_back` | list of strings | `["hyprctl", "dispatch", "sendshortcut", "ALT, Left"]` | |
+| `commands.browser_forward` | list of strings | `["hyprctl", "dispatch", "sendshortcut", "ALT, Right"]` | |
+| `commands.smart_zoom` | list of strings | `["hyprctl", "dispatch", "sendshortcut", "CTRL, 0"]` | resets page zoom (rough smart-zoom analog) |
+| `commands.none` | list | `[]` | reserved no-op; must stay empty |
 
-Notable knobs:
-
-- `scroll.inertia.tau` — seconds of momentum time constant (bigger = longer
-  glide). `min_velocity` is in detents/second; `max_duration_ms` caps it.
-- `scroll.touch.detents_per_mm` — scroll speed of surface drags.
-- `scroll.smooth.duration_ms` — how long a wheel detent takes to animate.
-- `gestures.fingers` — `2` or `3` fingers for swipes.
-- `gestures.map.<gesture>` — a builtin action name, or a custom action:
-  `{"command": ["notify-send", "hello"]}`.
-- `commands.<action>` — override what any builtin action runs, e.g. map
-  swipes to browser history instead of workspaces:
-
-  ```json
-  { "gestures": { "map": { "swipe_left": "browser_forward",
-                            "swipe_right": "browser_back" } } }
-  ```
+Feel tuning in practice: raise `scroll.inertia.tau` for a longer glide,
+`scroll.touch.detents_per_mm` for faster surface scrolling, lower
+`gestures.swipe.min_distance_mm` if swipes feel ignored. Try thresholds
+without moving your fingers via `omarchy-magic-mouse simulate`.
 
 ## CLI
 
 | Command | Purpose |
 |---|---|
-| `omarchy-magic-mouse run [--dry-run]` | run the daemon in the foreground (the service runs this) |
-| `omarchy-magic-mouse status` | service + config state |
-| `omarchy-magic-mouse devices` | input devices and how each is treated |
-| `omarchy-magic-mouse doctor` | permissions/integration checks |
-| `omarchy-magic-mouse config [--init\|--show]` | create/edit/show config |
-| `omarchy-magic-mouse start\|stop\|restart` | control the user service |
-| `omarchy-magic-mouse log` | follow the service journal |
-| `omarchy-magic-mouse simulate [--device …]` | replay a scripted session from stdin |
+| `setup [--dry-run]` | guided first run: config, permission fixes, service |
+| `doctor` (`diagnose`) | environment checks with a fix for every failure |
+| `status` | service, config and device state |
+| `devices` | input devices and how each is treated |
+| `run [--dry-run]` | run the daemon in the foreground (the service runs this) |
+| `config [--init\|--show]` | create/edit/show the merged config |
+| `start\|stop\|restart` | control the user service |
+| `log` | follow the service journal |
+| `simulate [--device …]` | replay a scripted session from stdin |
 
-`simulate` takes `TIME_MS TYPE CODE VALUE` lines (`#` comments) and prints
-every output event and action — useful for trying gesture thresholds without
-moving your fingers:
+## FAQ
 
-```bash
-echo '0 EV_ABS ABS_MT_SLOT 0
-0 EV_ABS ABS_MT_TRACKING_ID 1
-0 EV_ABS ABS_MT_POSITION_X 0
-0 EV_ABS ABS_MT_POSITION_Y 0
-0 EV_SYN SYN_REPORT 0
-16 EV_ABS ABS_MT_POSITION_Y 213
-16 EV_SYN SYN_REPORT 0
-24 EV_ABS ABS_MT_TRACKING_ID -1
-24 EV_SYN SYN_REPORT 0' | omarchy-magic-mouse simulate
-```
+**Is there a license?** Not yet — the license is an open decision for the
+maintainer. The AUR packaging draft carries a placeholder and must not be
+published until one is chosen.
+
+**Do I need an Apple Magic Mouse?** No. Ordinary mice get smooth wheel
+scrolling; the Magic Mouse additionally gets surface scrolling with inertia
+and two-finger gestures.
+
+**Why does it grab my mouse (`EVIOCGRAB`)?** Replacing the kernel's scroll
+stream requires owning the device. If the daemon dies or is killed, the
+kernel releases the grab and your mouse immediately behaves like stock Linux
+again (there is a test that kills it with SIGKILL and checks exactly this).
+
+**Scroll direction flips twice.** `scroll.natural` already flips; if you also
+set `natural_scroll` in `~/.config/hypr/input.lua`, the two stack. `doctor`
+warns about this combination.
+
+**Will it work with my trackpad?** Apple trackpads are recognized and listed,
+but left to libinput, which already handles them well.
+
+**What does it cost?** About 1µs of CPU per input event, zero when idle —
+measured in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+**Why not an Omarchy shell plugin?** Shell plugins are QML inside
+`omarchy-shell`; a device grabber belongs in its own process. It still follows
+Omarchy's addon conventions (user service, `~/.config/omarchy/` config,
+`~/.local/bin` CLI).
+
+**How do I report a bug?** `omarchy-magic-mouse doctor` output,
+`omarchy-magic-mouse log`, and the config you used — that is the complete
+picture.
+
+## Troubleshooting
+
+Run `omarchy-magic-mouse doctor` first: every failure prints the exact fix.
+Common ones:
+
+- **`doctor` fails on /dev/uinput or /dev/input** — finish the system install
+  (`./install.sh`) and log out/in so the `input` group applies.
+- **The daemon is running but gestures do nothing** — `omarchy-magic-mouse
+  devices` must show your device as `MANAGED: yes`; only
+  `apple_touch_mouse` and `wheel_mouse` classes are managed.
+- **Browser back/forward gestures don't fire** — Hyprland's `sendshortcut`
+  can misbehave with native Wayland windows in some versions. Override with
+  `wtype`:
+  `{"commands": {"browser_back": ["wtype", "-M", "alt", "-P", "Left", "-m", "alt"]}}`.
+- **Feeling is off** — tune the three knobs in the config table above;
+  `simulate` shows what any threshold would do.
+- **After a crash or update the mouse feels "stock"** — expected: grabs are
+  released when the daemon exits. `systemctl --user restart
+  omarchy-magic-mouse` brings the behaviour back.
 
 ## Validating on real hardware
 
@@ -252,65 +303,18 @@ tactile layer and the install path deserve a pass on a real machine. After
    `omarchy-magic-mouse log` + the config you used — that is the useful bug
    report.
 
-Known watch-item: Hyprland's `sendshortcut` can silently fail on native
-Wayland windows in some versions (browser back/forward defaults). If that
-happens, override `commands.browser_back`/`browser_forward` with `wtype`.
-
-## Troubleshooting
-
-- **`doctor` fails on /dev/uinput or /dev/input**: finish the system install
-  (`./install.sh`) and log out/in so the `input` group applies.
-- **Scroll direction flips twice**: `scroll.natural` already flips; if you
-  also enabled `natural_scroll` for this device in `~/.config/hypr/input.lua`,
-  the two stack. Leave Hyprland's setting off for the "Omarchy Magic Mouse"
-  virtual device.
-- **Browser back/forward gestures don't fire**: Hyprland's `sendshortcut` can
-  misbehave with native Wayland windows in some versions. Override the
-  commands with `wtype` if you hit that:
-  `{"commands": {"browser_back": ["wtype", "-M", "alt", "-P", "Left", "-m", "alt"]}}`.
-- **Feeling is off**: tune with `simulate` + `run --dry-run`; everything
-  threshold-like is in the config.
-- **Device not managed**: `omarchy-magic-mouse devices` shows the
-  classification; only `apple_touch_mouse` and `wheel_mouse` are managed.
-
 ## Development
 
-```bash
-python3 -m unittest discover -s tests   # 62 tests, no dependencies
-test/e2e/run.sh                         # end-to-end suite (see below)
-```
-
-The core is deterministic (all timing enters via injected clocks), so the
-scroll inertia, gesture recognition, config handling, action dispatch, and the
-full event pipeline are tested with synthetic input streams. `magicmouse/evdev.py`
-speaks the kernel UAPI directly; its ioctl numbers and struct layout are
-pinned by tests against the kernel's stable ABI.
-
-### End-to-end: an emulated Omarchy environment
-
-Unit tests cannot prove system behaviour, so `test/e2e/` runs the daemon
-against the **real kernel input core** inside a container with the **real
-Omarchy stack** (Arch Linux ARM, the `omarchy` packages from
-`pkgs.omarchy.org`, Omarchy's Hyprland build, quickshell): a virtual Magic
-Mouse emits events through `uinput` exactly like the `hid-magicmouse` driver,
-the daemon grabs and re-emits them, and the assertions read real state —
-Hyprland's active workspace, the Omarchy menu surface via `hyprctl layers`,
-and libinput's normalized stream. Ten scenarios cover pointer passthrough,
-grab-release-on-crash, inertial scrolling, scroll direction, smooth wheel,
-swipe→workspace switching, hotplug, the real `omarchy menu` action layer, and
-the third-party consumer view.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. In short:
 
 ```bash
-sudo modprobe uinput
-test/e2e/run.sh        # first run downloads + caches an ALARM rootfs (~830MB)
+python3 -m unittest discover -s tests   # 68 tests, no dependencies
+python3 -m unittest tests.test_scroll   # targeted run for one area
+test/e2e/run.sh                         # end-to-end suite (emulated Omarchy)
+test/e2e/run.sh bench                   # performance benchmark
 ```
-
-Details, scenario table, and the rig's boundaries: [`test/e2e/README.md`](test/e2e/README.md).
-This rig caught four real bugs the unit tests could not: `UI_SET_*BIT` uioctl
-argument passing, missing `EV_SYN` forwarding (the kernel buffers events
-without a frame marker, so consumers saw nothing), kernel ABS-value coalescing
-in the touch engine, and scroll-start slop eating the first millimetres.
 
 Layout: `magicmouse/` (package: `evdev`, `config`, `touch`, `scrolling`,
 `actions`, `pipeline`, `sink`, `service`, `cli`), `bin/`, `systemd/`, `udev/`,
-`system/`, `tests/`, `test/e2e/`.
+`system/`, `tests/`, `test/e2e/` (rig + bench), `packaging/aur/` (draft),
+`docs/` (plans, performance).
