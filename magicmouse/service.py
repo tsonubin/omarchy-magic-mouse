@@ -44,11 +44,12 @@ def _same_device(a, b):
 
 
 class Service:
-    def __init__(self, cfg, sink, dispatcher=None, log=None, clock=time.monotonic, config_path=None):
+    def __init__(self, cfg, sink, dispatcher=None, log=None, clock=time.monotonic, config_path=None, debug=False):
         self.cfg = cfg
         self.sink = sink
         self.dispatcher = dispatcher or ActionDispatcher(log=log or _stderr)
         self.log = log or _stderr
+        self.debug = debug
         self.clock = clock
         self._config_path = config_path
         self._devices = {}  # path -> (Device, DevicePipeline)
@@ -84,6 +85,10 @@ class Service:
         present = set()
         for info in evdev.list_devices():
             if not should_manage(info, wanted):
+                self._debug(
+                    f"ignoring {info.path}: {info.name} "
+                    f"[kind={classify(info)}, bustype={info.bustype:#06x}]"
+                )
                 continue
             kind = classify(info)
             present.add(info.path)
@@ -131,6 +136,10 @@ class Service:
         # no SIGCHLD policy to set — ignoring SIGCHLD would break their waits
 
         self.scan()
+        if not self._devices:
+            self.log(
+                "no manageable devices found — see `omarchy-magic-mouse devices` and `doctor`"
+            )
         sd_notify("READY=1")
         last_scan = self.clock()
         try:
@@ -189,6 +198,10 @@ class Service:
 
     def _handle_reload(self, _signum, _frame):
         self._reload_requested = True
+
+    def _debug(self, message):
+        if self.debug:
+            self.log(f"debug: {message}")
 
 
 def _stderr(message):

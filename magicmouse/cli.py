@@ -266,7 +266,15 @@ def cmd_run(args):
             print("run `omarchy-magic-mouse doctor` to diagnose permissions", file=sys.stderr)
             return 1
         dispatcher = ActionDispatcher(log=log)
-    service = Service(cfg, sink, dispatcher=dispatcher, log=log, clock=clock, config_path=args.config)
+    service = Service(
+        cfg,
+        sink,
+        dispatcher=dispatcher,
+        log=log,
+        clock=clock,
+        config_path=args.config,
+        debug=args.log_level == "debug",
+    )
     service.run_forever()
     return 0
 
@@ -496,6 +504,12 @@ def main(argv=None):
     )
     p_run.add_argument("--config", default=None, help="config file (default: ~/.config/omarchy/magic-mouse.json)")
     p_run.add_argument("--dry-run", action="store_true", help="print actions/scroll instead of applying them")
+    p_run.add_argument(
+        "--log-level",
+        choices=("info", "debug"),
+        default="info",
+        help="debug also logs device-selection decisions (why devices are ignored)",
+    )
     p_run.set_defaults(func=cmd_run)
 
     p_sim = sub.add_parser(
