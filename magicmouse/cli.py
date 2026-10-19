@@ -500,11 +500,29 @@ def main(argv=None):
 
     p_sim = sub.add_parser(
         "simulate", help="replay a scripted input session from stdin",
-        epilog="example: omarchy-magic-mouse simulate < my-session.txt",
+        epilog=(
+            "input format: one event per line — TIME_MS TYPE CODE VALUE\n"
+            "  (blank lines and # comments are ignored)\n"
+            "example:\n"
+            "  0   EV_ABS ABS_MT_SLOT 0\n"
+            "  0   EV_ABS ABS_MT_TRACKING_ID 1\n"
+            "  0   EV_ABS ABS_MT_POSITION_X 0\n"
+            "  0   EV_ABS ABS_MT_POSITION_Y 0\n"
+            "  0   EV_SYN SYN_REPORT 0\n"
+            "  16  EV_ABS ABS_MT_POSITION_Y 213\n"
+            "  16  EV_SYN SYN_REPORT 0\n"
+            "  24  EV_ABS ABS_MT_TRACKING_ID -1\n"
+            "  24  EV_SYN SYN_REPORT 0"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_sim.add_argument("--device", choices=sorted(SYNTHETIC_KINDS), default="magic-mouse")
-    p_sim.add_argument("--config", default=None)
+    p_sim.add_argument(
+        "--device",
+        choices=sorted(SYNTHETIC_KINDS),
+        default="magic-mouse",
+        help="virtual device to replay against (default: magic-mouse)",
+    )
+    p_sim.add_argument("--config", default=None, help="config file (default: ~/.config/omarchy/magic-mouse.json)")
     p_sim.set_defaults(func=cmd_simulate)
 
     p_dev = sub.add_parser("devices", help="list input devices and how they are treated")
@@ -536,7 +554,7 @@ def main(argv=None):
     p_cfg.set_defaults(func=cmd_config)
 
     p_log = sub.add_parser("log", help="follow the service journal")
-    p_log.add_argument("--no-follow", action="store_true")
+    p_log.add_argument("--no-follow", action="store_true", help="print recent entries and exit")
     p_log.set_defaults(func=cmd_log)
 
     p_doc = sub.add_parser(
