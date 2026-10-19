@@ -251,6 +251,18 @@ def _require_config(path):
         raise ConfigError(f"config file not found: {path}")
 
 
+def _write_default_config(path):
+    """Create the default config; returns an error message on failure."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(default_config(), handle, indent=2)
+            handle.write("\n")
+        return None
+    except OSError as error:
+        return str(error)
+
+
 def cmd_run(args):
     _require_config(args.config)
     cfg = load_config(args.config)
@@ -420,10 +432,10 @@ def cmd_setup(args):
         print(f"   would write the default config to {args.config or CONFIG_PATH}")
     else:
         path = args.config or CONFIG_PATH
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(default_config(), handle, indent=2)
-            handle.write("\n")
+        error = _write_default_config(path)
+        if error:
+            print(f"   cannot write {path}: {error}")
+            return 1
         print(f"   wrote defaults to {path}")
 
     print("\n2) permissions (fixes need sudo; nothing is run automatically)")
@@ -463,10 +475,10 @@ def cmd_config(args):
         return 0
     path = args.config or CONFIG_PATH
     if not os.path.exists(path):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(default_config(), handle, indent=2)
-            handle.write("\n")
+        error = _write_default_config(path)
+        if error:
+            print(f"cannot write {path}: {error}", file=sys.stderr)
+            return 1
         print(f"wrote {path}")
     if args.init:
         return 0
