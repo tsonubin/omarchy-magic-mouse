@@ -1,0 +1,16 @@
+post_install() {
+  echo "==> omarchy-magic-mouse needs per-seat input access:"
+  echo "      sudo usermod -aG input \$USER   # then log out and back in"
+  echo "==> Then start the service:"
+  echo "      systemctl --user enable --now omarchy-magic-mouse.service"
+  echo "==> Verify: omarchy-magic-mouse doctor"
+}
+
+post_upgrade() {
+  echo "==> Restart the service to pick up the new version:"
+  echo "      systemctl --user restart omarchy-magic-mouse.service"
+}
+
+post_remove() {
+  echo "==> 'input' group membership and ~/.config/omarchy/magic-mouse.json were left in place."
+}
