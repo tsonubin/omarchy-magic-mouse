@@ -118,12 +118,13 @@ one-finger drags can scroll *and* carry momentum. Device classes:
 | `magicmouse/service.py` | discovery, grabbing, hotplug/rescan, frame loop, clean shutdown |
 | `magicmouse/sink.py` / `cli.py` | recording/pretty sink for `simulate`; the `omarchy-magic-mouse` commands |
 
-Invariants worth knowing: the daemon never grabs its own virtual mouse;
-device identity is re-checked on every rescan (event numbers are recycled);
-a removed device or a dead sink exits cleanly — the kernel releases grabs on
-exit, so the hardware always reverts to stock behaviour; action commands can
-never take the input path down. Performance characteristics:
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+Invariants worth knowing: the daemon never grabs its own virtual mouse or
+any `BUS_VIRTUAL` device (ydotool, input remappers and friends are never
+managed); device identity is re-checked on every rescan (event numbers are
+recycled); a removed device or a dead sink exits cleanly — the kernel
+releases grabs on exit, so the hardware always reverts to stock behaviour;
+action commands run off the input path and can never take it down.
+Performance characteristics: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Install
 
@@ -163,7 +164,10 @@ shell plugin can talk to this daemon.)
 ## Configuration
 
 `omarchy-magic-mouse config` creates the file and opens it in `$EDITOR`;
-changes apply on `systemctl --user restart omarchy-magic-mouse`.
+changes apply on `systemctl --user restart omarchy-magic-mouse` or a plain
+`kill -HUP $(systemctl --user show -p MainPID --value omarchy-magic-mouse)`
+(SIGHUP reloads a valid config in place; an invalid one is refused with the
+reason and the running config stays).
 `config --show` prints the merged result. The file is strict JSON — unknown
 keys, wrong types, `NaN`/`Infinity` and NUL bytes are rejected with the exact
 path. Every option:
@@ -308,7 +312,7 @@ tactile layer and the install path deserve a pass on a real machine. After
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. In short:
 
 ```bash
-python3 -m unittest discover -s tests   # 68 tests, no dependencies
+python3 -m unittest discover -s tests   # unit suite, no dependencies
 python3 -m unittest tests.test_scroll   # targeted run for one area
 test/e2e/run.sh                         # end-to-end suite (emulated Omarchy)
 test/e2e/run.sh bench                   # performance benchmark

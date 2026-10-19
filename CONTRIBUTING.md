@@ -17,7 +17,9 @@ Be constrained. A test must guard real observable behaviour or a contract
 that would fail on a credible regression — no duplicates, no
 implementation-coupled assertions, no snapshot spam. Prefer extending an
 existing table (e.g. `tests/test_config.py`'s rejection cases) over new
-fixtures.
+fixtures. Inside omp, follow the test-audit skill
+(`~/.omp/agent/skills/test-audit`): one primary owner per contract at the
+strongest boundary, real transports over mocks, and delete test-only seams.
 
 Run only what covers your change:
 
