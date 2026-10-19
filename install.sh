@@ -51,7 +51,11 @@ run cp "$SOURCE_DIR/systemd/omarchy-magic-mouse.service" "$UNIT_DIR/"
 if command -v systemctl >/dev/null; then
   if run systemctl --user daemon-reload; then
     if [[ $ENABLE == 1 ]]; then
-      if run systemctl --user enable --now "$UNIT_NAME"; then
+      if run systemctl --user is-active --quiet "$UNIT_NAME" 2>/dev/null; then
+        # re-install over a running daemon must load the new code
+        run systemctl --user restart "$UNIT_NAME"
+        [[ $DRY_RUN == 1 ]] || echo "Service restarted to load the new code."
+      elif run systemctl --user enable --now "$UNIT_NAME"; then
         [[ $DRY_RUN == 1 ]] || echo "Service enabled and started."
       else
         echo "WARNING: could not enable $UNIT_NAME — run: systemctl --user enable --now $UNIT_NAME" >&2
