@@ -37,6 +37,12 @@ def sd_notify(message):
         pass
 
 
+def _same_device(a, b):
+    """Identity of a kernel input device: event numbers get recycled, so a
+    managed path must be re-checked against what actually sits behind it."""
+    return (a.name, a.vendor, a.product, a.version) == (b.name, b.vendor, b.product, b.version)
+
+
 class Service:
     def __init__(self, cfg, sink, dispatcher=None, log=None, clock=time.monotonic):
         self.cfg = cfg
@@ -57,8 +63,11 @@ class Service:
                 continue
             kind = classify(info)
             present.add(info.path)
-            if info.path in self._devices:
-                continue
+            managed = self._devices.get(info.path)
+            if managed is not None:
+                if _same_device(managed[0].info, info):
+                    continue
+                self._drop(info.path, "replaced by a different device")
             try:
                 device = evdev.Device(info)
                 device.grab()
@@ -107,11 +116,16 @@ class Service:
                     ready, _, _ = select.select(fds, [], [], timeout)
                 except InterruptedError:
                     continue
-                for fd in ready:
-                    self._pump(fd)
-                now = self.clock()
-                for _, pipeline in self._devices.values():
-                    pipeline.tick(now)
+                try:
+                    for fd in ready:
+                        self._pump(fd)
+                    now = self.clock()
+                    for _, pipeline in self._devices.values():
+                        pipeline.tick(now)
+                except OSError as error:
+                    # sink (uinput) loss: exit cleanly, systemd restarts us
+                    self.log(f"stopping: {error}")
+                    break
                 if now - last_scan >= RESCAN_INTERVAL:
                     self.scan()
                     last_scan = now

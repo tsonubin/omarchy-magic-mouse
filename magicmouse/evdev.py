@@ -6,6 +6,7 @@ has no compiled dependencies (no python-evdev).  Constants mirror
 (sources: Linux UAPI, stable ABI; values verified against kernel 6.12 headers).
 """
 
+import errno
 import fcntl
 import glob
 import os
@@ -310,11 +311,17 @@ class Device:
         self._grabbed = True
 
     def read_events(self):
-        """Return all pending events; empty when nothing is available."""
+        """Return all pending events; empty when nothing is available.
+
+        A zero-length read means the evdev node is gone (device removed):
+        raise so the service drops the device instead of idling on it.
+        """
         try:
             data = os.read(self.fd, EVENT_SIZE * 256)
         except BlockingIOError:
             return []
+        if not data:
+            raise OSError(errno.ENODEV, "input device disconnected")
         events = []
         for chunk in (data[i:i + EVENT_SIZE] for i in range(0, len(data), EVENT_SIZE)):
             if len(chunk) < EVENT_SIZE:
