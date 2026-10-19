@@ -222,7 +222,7 @@ without moving your fingers via `omarchy-magic-mouse simulate`.
 | `doctor` (`diagnose`) | environment checks with a fix for every failure |
 | `status` | service, config and device state |
 | `devices` | input devices and how each is treated |
-| `run [--dry-run]` | run the daemon in the foreground (the service runs this) |
+| `run [--dry-run] [--log-level debug]` | run the daemon in the foreground (the service runs this) |
 | `config [--init\|--show]` | create/edit/show the merged config |
 | `start\|stop\|restart` | control the user service |
 | `log` | follow the service journal |
@@ -271,7 +271,8 @@ Common ones:
   (`./install.sh`) and log out/in so the `input` group applies.
 - **The daemon is running but gestures do nothing** — `omarchy-magic-mouse
   devices` must show your device as `MANAGED: yes`; only
-  `apple_touch_mouse` and `wheel_mouse` classes are managed.
+  `apple_touch_mouse` and `wheel_mouse` classes are managed. `run
+  --log-level debug` logs why every ignored device was skipped.
 - **Browser back/forward gestures don't fire** — Hyprland's `sendshortcut`
   can misbehave with native Wayland windows in some versions. Override with
   `wtype`:

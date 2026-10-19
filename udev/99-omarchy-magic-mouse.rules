@@ -7,5 +7,9 @@
 # tools). Scoping udev rules to specific devices is not possible without
 # hardcoding hardware IDs; the daemon itself only opens devices it classifies
 # as manageable (see magicmouse/pipeline.py).
+#
+# The `input` group rather than TAG+="uaccess": the daemon runs as a systemd
+# user service that must work across logins and lock screens, while uaccess
+# ACLs only cover the active seat session.
 KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
 SUBSYSTEM=="input", KERNEL=="event*", GROUP="input", MODE="0660"
