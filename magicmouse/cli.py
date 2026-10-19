@@ -336,15 +336,29 @@ def _parse_replay_line(line):
 
 
 def cmd_simulate(args):
+    if sys.stdin.isatty():
+        print(
+            "simulate reads a session from stdin (one 'TIME_MS TYPE CODE VALUE' per line);"
+            " pipe or redirect one, e.g. `omarchy-magic-mouse simulate < session.txt`",
+            file=sys.stderr,
+        )
+        return 2
     _require_config(args.config)
     cfg = load_config(args.config)
     kind = SYNTHETIC_KINDS[args.device]
     clock = _Clock()
     printer = _print_sink_line(clock)
     sink = RecordingSink(printer=printer)
-    dispatcher = ActionDispatcher(dry_run=True, log=lambda message: printer("action", message))
+    actions = []
+
+    def log_action(message):
+        printer("action", message)
+        actions.append(message)
+
+    dispatcher = ActionDispatcher(dry_run=True, log=log_action)
     pipeline = DevicePipeline(synthetic_info(kind), cfg, sink, dispatcher, clock)
 
+    previous = None
     for number, raw in enumerate(sys.stdin, start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -354,6 +368,16 @@ def cmd_simulate(args):
         except ValueError as error:
             print(f"line {number}: {error}", file=sys.stderr)
             return 2
+        if previous is not None and when < previous:
+            # a clock that moves backwards manufactures garbage (velocity
+            # spikes, negative easing): refuse rather than lie about the feel
+            print(
+                f"line {number}: timestamps must not go backwards "
+                f"({when * 1000:.0f}ms after {previous * 1000:.0f}ms)",
+                file=sys.stderr,
+            )
+            return 2
+        previous = when
         # run the frame loop between input bursts, like the daemon does
         while pipeline.needs_ticks() and clock.now + 1 / 60 < when:
             clock.now += 1 / 60
@@ -366,6 +390,13 @@ def cmd_simulate(args):
     while pipeline.needs_ticks() and clock.now < deadline:
         clock.now += 1 / 60
         pipeline.tick(clock.now)
+    total_x = sum(x for x, _ in sink.scrolls)
+    total_y = sum(y for _, y in sink.scrolls)
+    printer(
+        "total",
+        f"scroll dx={total_x:+.0f} dy={total_y:+.0f} hi-res units "
+        f"({total_x / 120:+.1f}/{total_y / 120:+.1f} detents), actions: {len(actions)}",
+    )
     return 0
 
 
@@ -601,7 +632,10 @@ def main(argv=None):
             "  16  EV_ABS ABS_MT_POSITION_Y 213\n"
             "  16  EV_SYN SYN_REPORT 0\n"
             "  24  EV_ABS ABS_MT_TRACKING_ID -1\n"
-            "  24  EV_SYN SYN_REPORT 0"
+            "  24  EV_SYN SYN_REPORT 0\n"
+            "\n"
+            "timestamps must not go backwards (equal stamps are one frame);\n"
+            "every run ends with a totals line."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

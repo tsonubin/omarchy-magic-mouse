@@ -52,6 +52,41 @@ class CliContractTest(unittest.TestCase):
             "a wedged session bus must produce a hint, not a hang",
         )
 
+    def test_simulate_rejects_backwards_timestamps(self):
+        home = tempfile.mkdtemp(prefix="mm-cli-replay-")
+        result = subprocess.run(
+            [sys.executable, "-m", "magicmouse.cli", "simulate"],
+            input="100 EV_REL REL_X 1\n50 EV_REL REL_X 2\n",
+            capture_output=True,
+            text=True,
+            env={**os.environ, "HOME": home, "PYTHONPATH": REPO},
+            cwd=REPO,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("timestamps must not go backwards", result.stderr)
+
+    def test_simulate_requires_redirected_stdin(self):
+        import pty
+
+        home = tempfile.mkdtemp(prefix="mm-cli-tty-")
+        master, slave = pty.openpty()
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "magicmouse.cli", "simulate"],
+                stdin=slave,
+                capture_output=True,
+                text=True,
+                env={**os.environ, "HOME": home, "PYTHONPATH": REPO},
+                cwd=REPO,
+                timeout=30,
+            )
+        finally:
+            os.close(slave)
+            os.close(master)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("stdin", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
