@@ -18,7 +18,14 @@ from .config import (
     default_config,
     load_config,
 )
-from .pipeline import DevicePipeline, classify, synthetic_info
+from .pipeline import (
+    KIND_OTHER,
+    KIND_TRACKPAD,
+    DevicePipeline,
+    classify,
+    should_manage,
+    synthetic_info,
+)
 from .service import Service
 from .sink import RecordingSink
 
@@ -331,26 +338,43 @@ def cmd_simulate(args):
     return 0
 
 
+def _manage_verdict(info, wanted):
+    """(managed, note) — exactly the daemon's decision, plus why not."""
+    if should_manage(info, wanted):
+        return "yes", ""
+    if info.name == evdev.VIRTUAL_MOUSE_NAME:
+        return "-", "our virtual mouse"
+    if info.bustype == evdev.BUS_VIRTUAL:
+        return "-", "virtual device"
+    kind = classify(info)
+    if kind == KIND_TRACKPAD:
+        return "-", "left to libinput"
+    if kind == KIND_OTHER:
+        return "-", "unrecognized device"
+    return "-", "not in devices.manage"
+
+
 def cmd_devices(_args):
     rows = []
     cfg = load_config()
     wanted = set(cfg["devices"]["manage"])
     for info in evdev.list_devices():
-        kind = classify(info)
+        managed, note = _manage_verdict(info, wanted)
         rows.append(
             (
                 info.path,
                 info.name,
                 f"{info.vendor:04x}:{info.product:04x}",
-                kind,
-                "yes" if kind in wanted else "-",
+                classify(info),
+                managed,
+                note,
             )
         )
     if not rows:
         print("no readable input devices (need the `input` group or root — see doctor)")
         return 1
-    header = ("PATH", "NAME", "ID", "KIND", "MANAGED")
-    widths = [max(len(str(row[i])) for row in rows + [header]) for i in range(5)]
+    header = ("PATH", "NAME", "ID", "KIND", "MANAGED", "NOTE")
+    widths = [max(len(str(row[i])) for row in rows + [header]) for i in range(6)]
     for row in (header,) + tuple(rows):
         print("  ".join(str(cell).ljust(width) for cell, width in zip(row, widths)))
     return 0
