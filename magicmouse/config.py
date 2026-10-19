@@ -229,7 +229,8 @@ def load_config(path=None):
     cfg = default_config()
     if os.path.exists(path):
         try:
-            with open(path, encoding="utf-8") as handle:
+            # utf-8-sig: tolerate the BOM that GUI editors put in "UTF-8" files
+            with open(path, encoding="utf-8-sig") as handle:
                 override = json.load(
                     handle,
                     parse_constant=_reject_constant,
@@ -237,6 +238,8 @@ def load_config(path=None):
                 )
         except ValueError as error:
             raise ConfigError(f"{path}: invalid JSON: {error}") from error
+        except OSError as error:
+            raise ConfigError(f"{path}: cannot read config: {error}") from error
         if not isinstance(override, dict):
             raise ConfigError(f"{path}: top level must be a JSON object")
         try:

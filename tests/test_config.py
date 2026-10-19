@@ -69,6 +69,21 @@ class ConfigTest(unittest.TestCase):
                 finally:
                     os.unlink(handle.name)
 
+    def test_config_file_compatibility(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8-sig") as handle:
+            handle.write('{"scroll": {"natural": false}}')
+        try:
+            cfg = load_config(path=handle.name)  # editor-produced BOM must load
+            self.assertFalse(cfg["scroll"]["natural"])
+        finally:
+            os.unlink(handle.name)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ConfigError):
+                load_config(path=directory)  # a directory is a clean error
+
     def test_custom_command_action(self):
         cfg = default_config()
         _deep_merge(
