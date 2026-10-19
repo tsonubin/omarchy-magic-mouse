@@ -42,7 +42,12 @@ class ActionDispatcher:
                 _out, stderr = proc.communicate(timeout=DEFAULT_RUN_TIMEOUT)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                _out, stderr = proc.communicate()
+                try:
+                    _out, stderr = proc.communicate()
+                except (ChildProcessError, OSError):
+                    return
+            except (ChildProcessError, OSError):
+                return  # reaped elsewhere; the command still ran
             if proc.returncode != 0:
                 detail = (stderr or b"").decode("utf-8", "replace").strip()
                 self._log(f"command {' '.join(command)} exited {proc.returncode}: {detail}")
