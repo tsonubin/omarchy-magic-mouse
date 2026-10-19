@@ -205,4 +205,6 @@ class Service:
 
 
 def _stderr(message):
-    print(f"omarchy-magic-mouse: {message}", file=sys.stderr, flush=True)
+    # journald already timestamps its records; terminal runs get one here
+    stamp = "" if os.environ.get("JOURNAL_STREAM") else time.strftime("%H:%M:%S ")
+    print(f"omarchy-magic-mouse: {stamp}{message}", file=sys.stderr, flush=True)
