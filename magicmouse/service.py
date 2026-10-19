@@ -51,6 +51,7 @@ class Service:
         self.log = log or _stderr
         self.clock = clock
         self._devices = {}  # path -> (Device, DevicePipeline)
+        self._by_fd = {}  # fileno -> (Device, DevicePipeline), rebuilt on churn
         self._stopping = False
 
     # --- device management ----------------------------------------------------
@@ -80,11 +81,16 @@ class Service:
         for path in list(self._devices):
             if path not in present:
                 self._drop(path, "disappeared")
+        self._reindex()
 
     def _drop(self, path, reason):
         device, _pipeline = self._devices.pop(path)
         device.close()
         self.log(f"stopped managing {path}: {reason}")
+        self._reindex()
+
+    def _reindex(self):
+        self._by_fd = {device.fileno(): (device, pipeline) for device, pipeline in self._devices.values()}
 
     def list_managed(self):
         return [
@@ -122,6 +128,7 @@ class Service:
                     now = self.clock()
                     for _, pipeline in self._devices.values():
                         pipeline.tick(now)
+                    self.sink.flush()
                 except OSError as error:
                     # sink (uinput) loss: exit cleanly, systemd restarts us
                     self.log(f"stopping: {error}")
@@ -136,17 +143,18 @@ class Service:
             self.sink.close()
 
     def _pump(self, fd):
-        for path, (device, pipeline) in list(self._devices.items()):
-            if device.fileno() != fd:
-                continue
-            try:
-                events = device.read_events()
-            except OSError as error:
-                self._drop(path, str(error))
-                return
-            for event in events:
-                pipeline.process(event)
+        entry = self._by_fd.get(fd)
+        if entry is None:
             return
+        device, pipeline = entry
+        try:
+            events = device.read_events()
+        except OSError as error:
+            self._drop(device.info.path, str(error))
+            return
+        for event in events:
+            pipeline.process(event)
+        self.sink.flush()
 
     def _handle_stop(self, _signum, _frame):
         self._stopping = True

@@ -14,7 +14,7 @@ from magicmouse.pipeline import (
 )
 from magicmouse.sink import RecordingSink
 
-from helpers import FakeClock, TouchBuilder, feed
+from tests.helpers import FakeClock, TouchBuilder, feed
 
 
 class FakeDispatcher:
