@@ -203,6 +203,22 @@ class WheelMousePipelineTest(unittest.TestCase):
         total = sum(hr_y for _, hr_y in sink.scrolls)
         self.assertAlmostEqual(total, 120.0, places=6)
 
+    def test_hi_res_only_wheel_scrolls(self):
+        info = dataclasses.replace(
+            synthetic_info(KIND_WHEEL_MOUSE),
+            rel_bits=frozenset({evdev.REL_X, evdev.REL_Y, evdev.REL_WHEEL_HI_RES}),
+        )
+        cfg = default_config()
+        cfg["scroll"]["natural"] = False
+        sink, clock = RecordingSink(), FakeClock()
+        pipeline = DevicePipeline(info, cfg, sink, FakeDispatcher(), clock)
+        run(pipeline, clock, [evdev.InputEvent(evdev.EV_REL, evdev.REL_WHEEL_HI_RES, 60)] * 2, 0.0)
+        now = 0.0
+        while pipeline.needs_ticks() and now < 1.0:
+            now += 1 / 60
+            pipeline.tick(now)
+        self.assertAlmostEqual(sum(hr_y for _, hr_y in sink.scrolls), 120.0, places=6)
+
     def test_horizontal_wheel(self):
         pipeline, sink, _, clock = make_pipeline(KIND_WHEEL_MOUSE, natural=False)
         run(pipeline, clock, [evdev.InputEvent(evdev.EV_REL, evdev.REL_HWHEEL, -1)], 0.0)

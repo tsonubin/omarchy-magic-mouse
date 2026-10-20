@@ -14,7 +14,7 @@ import time
 
 from . import evdev
 from .config import resolve_actions
-from .scrolling import ScrollEngine
+from .scrolling import HI_RES_PER_DETENT, ScrollEngine
 from .touch import Gesture, ScrollDelta, ScrollEnd, Tap, TouchEngine
 
 KIND_TOUCH_MOUSE = "apple_touch_mouse"
@@ -162,7 +162,17 @@ class DevicePipeline:
                     self.scroll.wheel(now, detents_x, detents_y)
                 # apple_touch_mouse: kernel wheel emulation is superseded by
                 # the touch surface; dropping it is the point of managing it.
-            # hi-res companions are dropped: the engine emits its own pair.
+            elif code in (evdev.REL_WHEEL_HI_RES, evdev.REL_HWHEEL_HI_RES):
+                # hi-res companions are dropped: the engine emits its own pair.
+                # A device without the legacy axis has only this stream, so
+                # it becomes the (fractional) detent input instead.
+                horizontal = code == evdev.REL_HWHEEL_HI_RES
+                legacy = evdev.REL_HWHEEL if horizontal else evdev.REL_WHEEL
+                if self.kind == KIND_WHEEL_MOUSE and legacy not in self.info.rel_bits:
+                    detents = value / HI_RES_PER_DETENT
+                    self.scroll.wheel(
+                        now, detents if horizontal else 0, 0 if horizontal else detents
+                    )
             return
 
         if ev_type == evdev.EV_KEY:

@@ -526,8 +526,13 @@ def cmd_setup(args):
         os.path.join(os.path.expanduser("~"), ".config/systemd/user", UNIT),
         f"/usr/lib/systemd/user/{UNIT}",  # packaged installs
     )
+    custom = args.config and os.path.realpath(args.config) != os.path.realpath(CONFIG_PATH)
     if not any(os.path.exists(path) for path in unit_paths):
         print(f"   user unit not installed — run ./install.sh (it also covers step 2)")
+    elif custom:
+        # the unit runs without --config, so it would ignore this file
+        print(f"   not enabled: {UNIT} reads {CONFIG_PATH}, not {args.config}")
+        print(f"   run it directly: omarchy-magic-mouse run --config {args.config}")
     elif not shutil.which("systemctl"):
         print("   systemctl unavailable — start manually: omarchy-magic-mouse run")
     elif args.dry_run:

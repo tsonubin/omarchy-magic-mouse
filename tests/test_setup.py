@@ -41,6 +41,16 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("never overwritten", again.stdout, "existing config must not be touched")
 
+    def test_custom_config_does_not_enable_the_default_service(self):
+        home = tempfile.mkdtemp(prefix="mm-setup-test-")
+        unit_dir = os.path.join(home, ".config/systemd/user")
+        os.makedirs(unit_dir)
+        open(os.path.join(unit_dir, "omarchy-magic-mouse.service"), "w").close()
+        out = run_setup(home, "--dry-run", "--config", os.path.join(home, "custom.json"))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("not enabled", out.stdout)
+        self.assertNotIn("systemctl --user enable", out.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
