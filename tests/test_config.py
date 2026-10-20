@@ -57,6 +57,7 @@ class ConfigTest(unittest.TestCase):
             '{"scroll": {"inertia": {"tau": NaN}}}',
             '{"scroll": {"inertia": {"tau": Infinity}}}',
             '{"scroll": {"inertia": {"tau": 1e400}}}',
+            '{"scroll": {"inertia": {"tau": %s}}}' % ("1" + "0" * 400),
             '{"scroll": {"natural": true, "natural": false}}',
         )
         for content in contents:
