@@ -78,6 +78,13 @@ class InstallScriptTest(unittest.TestCase):
         with open(backups[0], encoding="utf-8") as handle:
             self.assertEqual(handle.read(), "USER DATA\n")
 
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("NEWER\n")
+        self.assertEqual(self.script("uninstall.sh", "--purge").returncode, 0)
+        self.assertEqual(
+            len(glob.glob(config + ".bak-*")), 2, "a second purge must not overwrite the first"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

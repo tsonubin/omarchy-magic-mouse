@@ -52,7 +52,7 @@ class ConfigTest(unittest.TestCase):
     def test_nonstandard_json_numbers_are_rejected(self):
         import tempfile
 
-        for literal in ("NaN", "Infinity", "1e400"):
+        for literal in ("NaN", "Infinity", "1e400", "1" + "0" * 400):
             with self.subTest(literal=literal):
                 with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
                     handle.write('{"scroll": {"inertia": {"tau": %s}}}' % literal)

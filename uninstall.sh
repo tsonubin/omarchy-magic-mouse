@@ -45,8 +45,14 @@ run rm -rf "$HOME/.local/share/omarchy-magic-mouse"
 if [[ $PURGE == 1 ]]; then
   CONFIG="$HOME/.config/omarchy/magic-mouse.json"
   if [[ -e $CONFIG ]]; then
-    BACKUP="$CONFIG.bak-$(date +%Y%m%d%H%M%S)"
-    run mv "$CONFIG" "$BACKUP"
+    STAMP=$(date +%Y%m%d%H%M%S)
+    BACKUP="$CONFIG.bak-$STAMP"
+    n=1
+    while [[ -e $BACKUP ]]; do  # two purges in one second: never overwrite
+      BACKUP="$CONFIG.bak-$STAMP.$n"
+      n=$((n + 1))
+    done
+    run mv -n "$CONFIG" "$BACKUP"
     [[ $DRY_RUN == 1 ]] || echo "Config moved aside to $BACKUP"
   fi
   if [[ $SYSTEM == 1 ]] && { (( DRY_RUN )) || { command -v sudo >/dev/null && sudo -v; }; }; then

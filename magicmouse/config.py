@@ -116,11 +116,12 @@ def _reject_constant(name):
 
 def _is_number(value):
     """A finite JSON number.  ``bool`` is an ``int`` in Python: exclude it."""
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an int too large to convert to float
+        return False
 
 
 def _is_command(value):
