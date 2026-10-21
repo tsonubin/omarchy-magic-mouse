@@ -1,0 +1,16 @@
+pkgbase = omarchy-magic-mouse
+	pkgdesc = macOS Magic Mouse behaviour for Omarchy: inertial scrolling, smooth wheel, swipe gestures
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/tsonubin/omarchy-magic-mouse
+	arch = any
+	license = MIT
+	depends = python
+	optdepends = hyprland: gesture actions dispatch to a Hyprland compositor
+	optdepends = wtype: alternative key synthesis for browser back/forward actions
+	optdepends = libinput: third-party consumer tooling (libinput-tools for the CLI)
+	install = omarchy-magic-mouse.install
+	source = omarchy-magic-mouse-1.0.0.tar.gz::https://github.com/tsonubin/omarchy-magic-mouse/archive/refs/tags/v1.0.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = omarchy-magic-mouse
