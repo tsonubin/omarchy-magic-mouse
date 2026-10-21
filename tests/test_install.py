@@ -15,8 +15,17 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class InstallScriptTest(unittest.TestCase):
     def setUp(self):
-        self.home = tempfile.mkdtemp(prefix="mm-install-test-")
-        self.env = {**os.environ, "HOME": self.home}
+        self.temp = tempfile.TemporaryDirectory(prefix="mm-install-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.home = self.temp.name
+        self.env = {
+            **os.environ,
+            "HOME": self.home,
+            "XDG_CONFIG_HOME": os.path.join(self.home, ".config"),
+            # Never contact the caller's real user service manager.
+            "XDG_RUNTIME_DIR": os.path.join(self.home, "run"),
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + os.path.join(self.home, "bus"),
+        }
 
     def script(self, name, *args):
         return subprocess.run(

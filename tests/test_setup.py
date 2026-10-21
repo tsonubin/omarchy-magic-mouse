@@ -15,7 +15,14 @@ def run_setup(home, *args):
         [sys.executable, "-m", "magicmouse.cli", "setup", *args],
         capture_output=True,
         text=True,
-        env={**os.environ, "HOME": home, "PYTHONPATH": REPO},
+        env={
+            **os.environ,
+            "HOME": home,
+            "XDG_CONFIG_HOME": os.path.join(home, ".config"),
+            "XDG_RUNTIME_DIR": os.path.join(home, "run"),
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + os.path.join(home, "bus"),
+            "PYTHONPATH": REPO,
+        },
         cwd=REPO,
         timeout=60,
     )
