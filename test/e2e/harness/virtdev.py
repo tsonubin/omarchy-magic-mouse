@@ -23,6 +23,7 @@ from magicmouse.evdev import (
     BTN_LEFT,
     BTN_RIGHT,
     BUS_BLUETOOTH,
+    BUS_USB,
     BUS_VIRTUAL,
     EV_ABS,
     EV_KEY,
@@ -187,4 +188,6 @@ def magic_mouse():
 
 
 def wheel_mouse():
-    return UInputSource(WHEEL_MOUSE_NAME, BUS_VIRTUAL, 0x0001, 0x0001, False)
+    # BUS_USB like real hardware: the daemon refuses BUS_VIRTUAL devices so it
+    # never hijacks other userspace virtual input tools
+    return UInputSource(WHEEL_MOUSE_NAME, BUS_USB, 0x0001, 0x0001, False)

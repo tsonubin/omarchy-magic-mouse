@@ -1,0 +1,53 @@
+# Maintainer: Shay Zhang <shay@syntheticfi.com>
+# DRAFT — not published to the AUR. See packaging/aur/README.md for what
+# must happen before this could be published (tag, updpkgsums, LICENSE,
+# namcap/makepkg validation — none of which this box can do).
+#
+# Conflicts with the user-level install from ./install.sh: remove that first
+#   ./uninstall.sh --purge
+pkgname=omarchy-magic-mouse
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='macOS Magic Mouse behaviour for Omarchy: inertial scrolling, smooth wheel, swipe gestures'
+arch=('any')
+url='https://github.com/tsonubin/omarchy-magic-mouse'
+# PLACEHOLDER — the license is an open decision (see README FAQ). Do not
+# publish until the owner sets one and the repo ships a LICENSE file.
+license=('MIT')
+depends=('python')
+optdepends=(
+  'hyprland: gesture actions dispatch to a Hyprland compositor'
+  'wtype: alternative key synthesis for browser back/forward actions'
+  'libinput: third-party consumer tooling (libinput-tools for the CLI)'
+)
+# DRAFT: the v1.0.0 tag does not exist yet; after tagging run `updpkgsums`.
+install=omarchy-magic-mouse.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  install -d "$pkgdir/usr/lib/$pkgname"
+  cp -r magicmouse "$pkgdir/usr/lib/$pkgname/"
+
+  # the shipped entry script resolves its package tree relative to itself
+  install -d "$pkgdir/usr/lib/$pkgname/bin"
+  install -m755 bin/omarchy-magic-mouse "$pkgdir/usr/lib/$pkgname/bin/"
+  install -d "$pkgdir/usr/bin"
+  ln -s "../lib/$pkgname/bin/omarchy-magic-mouse" "$pkgdir/usr/bin/omarchy-magic-mouse"
+
+  # packaged unit runs from /usr/bin instead of ~/.local/share
+  install -d "$pkgdir/usr/lib/systemd/user"
+  sed 's|^ExecStart=.*|ExecStart=/usr/bin/omarchy-magic-mouse run|' \
+    systemd/omarchy-magic-mouse.service \
+    > "$pkgdir/usr/lib/systemd/user/omarchy-magic-mouse.service"
+
+  install -Dm644 udev/99-omarchy-magic-mouse.rules \
+    "$pkgdir/usr/lib/udev/rules.d/99-omarchy-magic-mouse.rules"
+  install -Dm644 system/modules-load.d/omarchy-magic-mouse.conf \
+    "$pkgdir/usr/lib/modules-load.d/omarchy-magic-mouse.conf"
+
+  install -d "$pkgdir/usr/share/doc/$pkgname"
+  install -m644 README.md docs/HARDENING_PLAN.md "$pkgdir/usr/share/doc/$pkgname/"
+}

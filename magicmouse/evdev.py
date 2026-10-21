@@ -6,10 +6,14 @@ has no compiled dependencies (no python-evdev).  Constants mirror
 (sources: Linux UAPI, stable ABI; values verified against kernel 6.12 headers).
 """
 
+import errno
 import fcntl
 import glob
 import os
+import select
 import struct
+import time
+from collections import namedtuple
 from dataclasses import dataclass, field
 
 # --- linux/input-event-codes.h -------------------------------------------------
@@ -201,12 +205,9 @@ UINPUT_PATH = "/dev/uinput"
 VIRTUAL_MOUSE_NAME = "Omarchy Magic Mouse"
 
 
-@dataclass(frozen=True)
-class InputEvent:
-    type: int
-    code: int
-    value: int
-    time: float = 0.0
+# namedtuple, not a dataclass: one InputEvent is allocated per kernel event in
+# the hot path and this is measurably cheaper (see docs/PERFORMANCE.md)
+InputEvent = namedtuple("InputEvent", ("type", "code", "value", "time"), defaults=(0.0,))
 
 
 @dataclass(frozen=True)
@@ -310,18 +311,21 @@ class Device:
         self._grabbed = True
 
     def read_events(self):
-        """Return all pending events; empty when nothing is available."""
+        """Return all pending events; empty when nothing is available.
+
+        A zero-length read means the evdev node is gone (device removed):
+        raise so the service drops the device instead of idling on it.
+        """
         try:
             data = os.read(self.fd, EVENT_SIZE * 256)
         except BlockingIOError:
             return []
-        events = []
-        for chunk in (data[i:i + EVENT_SIZE] for i in range(0, len(data), EVENT_SIZE)):
-            if len(chunk) < EVENT_SIZE:
-                break
-            sec, usec, ev_type, code, value = struct.unpack(EVENT_FMT, chunk)
-            events.append(InputEvent(ev_type, code, value, sec + usec / 1_000_000))
-        return events
+        if not data:
+            raise OSError(errno.ENODEV, "input device disconnected")
+        return [
+            InputEvent(ev_type, code, value, sec + usec / 1_000_000)
+            for sec, usec, ev_type, code, value in struct.iter_unpack(EVENT_FMT, data)
+        ]
 
     def fileno(self):
         return self.fd
@@ -337,6 +341,25 @@ class Device:
             os.close(self.fd)
         except OSError:
             pass
+
+
+def _write_all(fd, buf, timeout=1.0):
+    """Write the whole buffer or raise.
+
+    ``os.write`` on the non-blocking uinput fd may write partially (or raise
+    ``BlockingIOError``), and a truncated ``input_event`` stream is silent
+    corruption for every consumer: complete the write or fail loudly.
+    """
+    view = memoryview(buf)
+    deadline = time.monotonic() + timeout
+    while view:
+        try:
+            written = os.write(fd, view)
+            view = view[written:]
+        except BlockingIOError:
+            if time.monotonic() > deadline:
+                raise OSError(errno.EIO, "uinput write stalled") from None
+            select.select([], [fd], [], 0.05)
 
 
 class ScrollAccumulator:
@@ -392,6 +415,7 @@ class UInputMouse:
         self._clock = clock
         self.fd = os.open(UINPUT_PATH, os.O_WRONLY | os.O_NONBLOCK)
         self._scroll = ScrollAccumulator()
+        self._out = bytearray()
         # UI_SET_*BIT takes the bit number by value, not as a pointer.
         for ev_bit, code in [
             (UI_SET_EVBIT, EV_KEY),
@@ -408,11 +432,17 @@ class UInputMouse:
         fcntl.ioctl(self.fd, UI_DEV_CREATE, 0)
 
     def write(self, ev_type, code, value, time=None):
+        """Buffer one event; flush() delivers the batch in a single write."""
         if time is None:
             time = self._clock() if self._clock else 0.0
         sec = int(time)
         usec = int((time - sec) * 1_000_000)
-        os.write(self.fd, struct.pack(EVENT_FMT, sec, usec, ev_type, code, value))
+        self._out += struct.pack(EVENT_FMT, sec, usec, ev_type, code, value)
+
+    def flush(self):
+        if self._out:
+            _write_all(self.fd, self._out)
+            self._out.clear()
 
     def write_event(self, event):
         self.write(event.type, event.code, event.value, event.time or None)
@@ -428,8 +458,13 @@ class UInputMouse:
 
     def sync(self):
         self.write(EV_SYN, SYN_REPORT, 0)
+        self.flush()
 
     def close(self):
+        try:
+            self.flush()
+        except OSError:
+            pass
         try:
             fcntl.ioctl(self.fd, UI_DEV_DESTROY)
         except OSError:

@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from magicmouse.config import (
@@ -39,12 +40,59 @@ class ConfigTest(unittest.TestCase):
             {"gestures": {"map": {"sideways": "none"}}},
             {"scroll": {"inertia": {"tau": 0}}},
             {"commands": {"app_grid": []}},
+            {"commands": {"app-grid": ["true"]}},  # typo: silently dead before
             {"devices": {"manage": ["apple_trackpad"]}},
+            {"scroll": {"touch": {"detents_per_mm": True}}},  # bool is an int
+            {"gestures": {"map": {"tap": {"command": ["bad\0cmd"]}}}},
         ):
-            cfg = default_config()
-            _deep_merge(cfg, patch)
             with self.assertRaises(ConfigError, msg=patch):
+                cfg = default_config()
+                _deep_merge(cfg, patch)
                 validate(cfg)
+
+    def test_invalid_json_is_rejected(self):
+        import tempfile
+
+        contents = (
+            '{"scroll": {"inertia": {"tau": NaN}}}',
+            '{"scroll": {"inertia": {"tau": Infinity}}}',
+            '{"scroll": {"inertia": {"tau": 1e400}}}',
+            '{"scroll": {"inertia": {"tau": %s}}}' % ("1" + "0" * 400),
+            '{"scroll": {"natural": true, "natural": false}}',
+        )
+        for content in contents:
+            with self.subTest(content=content):
+                with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+                    handle.write(content)
+                try:
+                    with self.assertRaises(ConfigError):
+                        load_config(path=handle.name)
+                finally:
+                    os.unlink(handle.name)
+
+    def test_config_file_compatibility(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8-sig") as handle:
+            handle.write('{"scroll": {"natural": false}}')
+        try:
+            cfg = load_config(path=handle.name)  # editor-produced BOM must load
+            self.assertFalse(cfg["scroll"]["natural"])
+        finally:
+            os.unlink(handle.name)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ConfigError):
+                load_config(path=directory)  # a directory is a clean error
+
+    def test_all_problems_are_reported(self):
+        cfg = default_config()
+        _deep_merge(cfg, {"gestures": {"fingers": 5}, "scroll": {"inertia": {"tau": -1}}})
+        with self.assertRaises(ConfigError) as caught:
+            validate(cfg)
+        self.assertEqual(len(caught.exception.problems), 2, "one round-trip must fix everything at once")
+        self.assertIn("gestures.fingers", str(caught.exception))
+        self.assertIn("scroll.inertia.tau", str(caught.exception))
 
     def test_custom_command_action(self):
         cfg = default_config()

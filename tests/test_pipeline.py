@@ -14,7 +14,7 @@ from magicmouse.pipeline import (
 )
 from magicmouse.sink import RecordingSink
 
-from helpers import FakeClock, TouchBuilder, feed
+from tests.helpers import FakeClock, TouchBuilder, feed
 
 
 class FakeDispatcher:
@@ -43,16 +43,30 @@ def run(pipeline, clock, events, at):
 
 class ClassificationTest(unittest.TestCase):
     def test_synthetic_devices_classify_as_expected(self):
-        self.assertEqual(classify(synthetic_info(KIND_TOUCH_MOUSE)), KIND_TOUCH_MOUSE)
-        self.assertEqual(classify(synthetic_info(KIND_WHEEL_MOUSE)), KIND_WHEEL_MOUSE)
-
-    def test_never_grabs_our_own_virtual_mouse(self):
-        wanted = {KIND_TOUCH_MOUSE, KIND_WHEEL_MOUSE}
-        self.assertTrue(should_manage(synthetic_info(KIND_TOUCH_MOUSE), wanted))
-        sink = dataclasses.replace(
-            synthetic_info(KIND_TOUCH_MOUSE), name=evdev.VIRTUAL_MOUSE_NAME
+        hi_res_only = dataclasses.replace(
+            synthetic_info(KIND_WHEEL_MOUSE),
+            rel_bits=frozenset({evdev.REL_X, evdev.REL_Y, evdev.REL_WHEEL_HI_RES}),
         )
-        self.assertFalse(should_manage(sink, wanted))
+        cases = (
+            (synthetic_info(KIND_TOUCH_MOUSE), KIND_TOUCH_MOUSE),
+            (synthetic_info(KIND_WHEEL_MOUSE), KIND_WHEEL_MOUSE),
+            (hi_res_only, KIND_WHEEL_MOUSE),  # wheels advertised hi-res only
+        )
+        for info, expected in cases:
+            with self.subTest(device=info.name, rel=sorted(info.rel_bits)):
+                self.assertEqual(classify(info), expected)
+
+    def test_only_real_hardware_is_managed(self):
+        wanted = {KIND_TOUCH_MOUSE, KIND_WHEEL_MOUSE}
+        cases = (
+            # real hardware reports USB/Bluetooth buses
+            (dataclasses.replace(synthetic_info(KIND_TOUCH_MOUSE), bustype=evdev.BUS_BLUETOOTH), True),
+            (dataclasses.replace(synthetic_info(KIND_TOUCH_MOUSE), name=evdev.VIRTUAL_MOUSE_NAME), False),
+            (dataclasses.replace(synthetic_info(KIND_WHEEL_MOUSE), bustype=evdev.BUS_VIRTUAL), False),
+        )
+        for info, expected in cases:
+            with self.subTest(device=info.name, bustype=hex(info.bustype)):
+                self.assertEqual(should_manage(info, wanted), expected)
 
 
 class TouchMousePipelineTest(unittest.TestCase):
@@ -188,6 +202,22 @@ class WheelMousePipelineTest(unittest.TestCase):
             pipeline.tick(now)
         total = sum(hr_y for _, hr_y in sink.scrolls)
         self.assertAlmostEqual(total, 120.0, places=6)
+
+    def test_hi_res_only_wheel_scrolls(self):
+        info = dataclasses.replace(
+            synthetic_info(KIND_WHEEL_MOUSE),
+            rel_bits=frozenset({evdev.REL_X, evdev.REL_Y, evdev.REL_WHEEL_HI_RES}),
+        )
+        cfg = default_config()
+        cfg["scroll"]["natural"] = False
+        sink, clock = RecordingSink(), FakeClock()
+        pipeline = DevicePipeline(info, cfg, sink, FakeDispatcher(), clock)
+        run(pipeline, clock, [evdev.InputEvent(evdev.EV_REL, evdev.REL_WHEEL_HI_RES, 60)] * 2, 0.0)
+        now = 0.0
+        while pipeline.needs_ticks() and now < 1.0:
+            now += 1 / 60
+            pipeline.tick(now)
+        self.assertAlmostEqual(sum(hr_y for _, hr_y in sink.scrolls), 120.0, places=6)
 
     def test_horizontal_wheel(self):
         pipeline, sink, _, clock = make_pipeline(KIND_WHEEL_MOUSE, natural=False)

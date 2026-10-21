@@ -43,5 +43,8 @@ class RecordingSink:
         if self.printer:
             self.printer("out", "EV_SYN SYN_REPORT 0")
 
+    def flush(self):
+        pass  # recording sink has no buffering; interface parity with uinput
+
     def close(self):
         pass
