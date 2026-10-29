@@ -79,6 +79,25 @@ one-finger drags can scroll *and* carry momentum. Device classes:
 - `apple_trackpad`, everything else — listed by `omarchy-magic-mouse devices`
   but left to libinput, which already handles them well.
 
+### Architecture
+
+| Module | Responsibility |
+|---|---|
+| `magicmouse/evdev.py` | kernel UAPI (evdev + uinput), no dependencies; virtual-mouse output with paired legacy/hi-res scroll |
+| `magicmouse/config.py` | defaults, deep-merge, strict validation (finite numbers, no NaN/Infinity, no NUL in commands) |
+| `magicmouse/touch.py` | MT slot tracking → scroll deltas, taps, swipes (mm units via kernel axis resolutions) |
+| `magicmouse/scrolling.py` | scroll speed, smooth wheel animation, inertial momentum — deterministic, clocks injected |
+| `magicmouse/actions.py` | action specs → commands; failures logged, never raised |
+| `magicmouse/pipeline.py` | per-device routing and classification; the only place device semantics live |
+| `magicmouse/service.py` | discovery, grabbing, hotplug/rescan, frame loop, clean shutdown |
+| `magicmouse/sink.py` / `cli.py` | recording/pretty sink for `simulate`; the `omarchy-magic-mouse` commands |
+
+Invariants worth knowing: the daemon never grabs its own virtual mouse;
+device identity is re-checked on every rescan (event numbers are recycled);
+a removed device or a dead sink exits cleanly — the kernel releases grabs on
+exit, so the hardware always reverts to stock behaviour; action commands can
+never take the input path down.
+
 ## Install
 
 ```bash
@@ -104,8 +123,14 @@ omarchy-magic-mouse doctor
 ```
 
 Flags: `--no-system` (skip sudo parts), `--no-enable` (don't start the
-service yet). Uninstall with `./uninstall.sh` (add `--purge` to remove the
-config and system files).
+service yet), `--dry-run` (print planned actions, change nothing).
+Uninstall with `./uninstall.sh` (add `--purge` to move the config aside to a
+timestamped `.bak` — nothing in `~/.config` is ever deleted).
+
+A packaging draft (PKGBUILD + .SRCINFO, **not published** to the AUR) lives
+in [`packaging/aur/`](packaging/aur/); it installs the same daemon under
+`/usr` instead of `~`. Pick one install method — remove the user-level one
+with `./uninstall.sh --purge` first.
 
 This is deliberately *not* an Omarchy shell plugin: `~/.config/omarchy/plugins/`
 hosts QML running inside `omarchy-shell`, while a device grabber belongs in
@@ -223,8 +248,9 @@ tactile layer and the install path deserve a pass on a real machine. After
    - double tap: app-grid/menu action fires (`gestures.tap.*`)
 5. Kill it: `systemctl --user stop omarchy-magic-mouse` — the mouse must
    immediately behave like stock Linux again.
-6. Note anything surprising in `omarchy-magic-mouse log` + the config you
-   used — that is the useful bug report.
+6. Note anything surprising in `omarchy-magic-mouse doctor` output +
+   `omarchy-magic-mouse log` + the config you used — that is the useful bug
+   report.
 
 Known watch-item: Hyprland's `sendshortcut` can silently fail on native
 Wayland windows in some versions (browser back/forward defaults). If that

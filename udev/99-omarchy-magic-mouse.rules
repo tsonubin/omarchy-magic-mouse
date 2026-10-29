@@ -1,4 +1,11 @@
 # omarchy-magic-mouse: let the user session grab input devices and create the
-# virtual mouse it forwards through. `input` is a standard Arch group.
+# virtual mouse it forwards through.
+#
+# Blast radius (accepted, documented): membership of the `input` group grants
+# read/write on every /dev/input/event* node and /dev/uinput — the standard
+# Arch mechanism for per-seat input access (same model as evtest, libinput
+# tools). Scoping udev rules to specific devices is not possible without
+# hardcoding hardware IDs; the daemon itself only opens devices it classifies
+# as manageable (see magicmouse/pipeline.py).
 KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
 SUBSYSTEM=="input", KERNEL=="event*", GROUP="input", MODE="0660"
