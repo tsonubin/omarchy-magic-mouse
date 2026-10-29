@@ -19,6 +19,14 @@ else
   echo "omarchy CLI: NOT PRESENT"
 fi
 
+if [[ ${1:-} == "bench" ]]; then
+  shift
+  echo
+  echo "=== benchmark ==="
+  cd /src/test/e2e
+  exec python3 -m harness.bench "$@"
+fi
+
 echo
 echo "=== end-to-end scenarios ==="
 cd /src/test/e2e

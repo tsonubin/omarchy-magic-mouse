@@ -341,6 +341,46 @@ def hotplug_attach():
 
 
 @scenario
+def config_reload():
+    """SIGHUP applies a new config; an invalid one keeps the running config."""
+    src = virtdev.magic_mouse()
+    rec = None
+    daemon = Daemon(cfg_with(scroll__inertia__enabled=False), label="reload")
+    try:
+        observe.ensure_node(MM)
+        sink = observe.ensure_node(SINK_NAME)
+        assert daemon.wait_log("managing /dev/input"), daemon._log_text()
+        rec = observe.DeviceRecorder(sink)
+
+        mm_drag(src, frames=2)  # natural=true (default): fingers down -> positive
+        rec.wait_for(lambda evs: hi_res_sum(evs) != 0, timeout=3)
+        time.sleep(0.2)
+        assert hi_res_sum(rec.events) == 288, hi_res_sum(rec.events)
+
+        with open(daemon.config_path, "w", encoding="utf-8") as handle:
+            json.dump({"scroll": {"natural": False, "inertia": {"enabled": False}}}, handle)
+        daemon.proc.send_signal(signal.SIGHUP)
+        assert daemon.wait_log("config reloaded"), daemon._log_text()
+
+        rec.clear()
+        mm_drag(src, frames=2)  # same drag must now scroll the other way
+        rec.wait_for(lambda evs: hi_res_sum(evs) != 0, timeout=3)
+        time.sleep(0.2)
+        assert hi_res_sum(rec.events) == -288, hi_res_sum(rec.events)
+
+        with open(daemon.config_path, "w", encoding="utf-8") as handle:
+            handle.write('{"scroll": {"natural": NaN}}')
+        daemon.proc.send_signal(signal.SIGHUP)
+        assert daemon.wait_log("reload failed, keeping the current config"), daemon._log_text()
+        assert daemon.alive(), "a bad config must not kill the daemon"
+    finally:
+        daemon.stop()
+        if rec is not None:
+            rec.stop()
+        src.close()
+
+
+@scenario
 def omarchy_menu_gesture():
     """swipe_down runs the real `omarchy menu toggle root` and the menu
     surface appears in the compositor — the full Omarchy action layer."""

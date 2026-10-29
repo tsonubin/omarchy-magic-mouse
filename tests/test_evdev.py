@@ -1,4 +1,8 @@
+import fcntl
+import os
 import struct
+import threading
+import time
 import unittest
 
 from magicmouse import evdev
@@ -24,6 +28,40 @@ class EvdevAbiTest(unittest.TestCase):
         raw = struct.pack(evdev.EVENT_FMT, 5, 250000, evdev.EV_REL, evdev.REL_X, -3)
         sec, usec, ev_type, code, value = struct.unpack(evdev.EVENT_FMT, raw)
         self.assertEqual((sec, usec, ev_type, code, value), (5, 250000, evdev.EV_REL, evdev.REL_X, -3))
+
+
+class WriteAllTest(unittest.TestCase):
+    def test_partial_writes_complete_in_order(self):
+        # the uinput fd is non-blocking and consumers parse fixed-size
+        # input_event structs: a truncated write corrupts the stream
+        read_fd, write_fd = os.pipe()
+        self.addCleanup(os.close, read_fd)
+        self.addCleanup(os.close, write_fd)
+        os.set_blocking(write_fd, False)
+        f_get_pipe_sz = getattr(fcntl, "F_GETPIPE_SZ", 1032)  # Linux F_GETPIPE_SZ
+        capacity = fcntl.fcntl(write_fd, f_get_pipe_sz)
+        fill = b"x" * capacity
+        self.assertEqual(os.write(write_fd, fill), capacity)  # pipe is now full
+
+        payload = bytes(range(256)) * 400  # 102400 bytes, far past capacity
+        received = []
+
+        def drain():
+            want = len(fill) + len(payload)
+            total = 0
+            while total < want:
+                chunk = os.read(read_fd, 65536)
+                received.append(chunk)
+                total += len(chunk)
+
+        import threading
+
+        drainer = threading.Thread(target=drain)
+        drainer.start()
+        time.sleep(0.05)  # let the pipe sit full before we write
+        evdev._write_all(write_fd, payload, timeout=10.0)
+        drainer.join(timeout=10)
+        self.assertEqual(b"".join(received), fill + payload, "stream must be complete and ordered")
 
 
 class ScrollAccumulatorTest(unittest.TestCase):

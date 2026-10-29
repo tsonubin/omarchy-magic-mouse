@@ -35,7 +35,12 @@ class FakeDevice:
 
 
 def info_at(path, product):
-    return dataclasses.replace(synthetic_info(KIND_TOUCH_MOUSE), path=path, product=product)
+    return dataclasses.replace(
+        synthetic_info(KIND_TOUCH_MOUSE),
+        path=path,
+        product=product,
+        bustype=evdev.BUS_BLUETOOTH,  # real hardware; BUS_VIRTUAL is never managed
+    )
 
 
 class DeviceChurnTest(unittest.TestCase):

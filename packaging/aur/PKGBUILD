@@ -11,7 +11,9 @@ pkgrel=1
 pkgdesc='macOS Magic Mouse behaviour for Omarchy: inertial scrolling, smooth wheel, swipe gestures'
 arch=('any')
 url='https://github.com/tsonubin/omarchy-magic-mouse'
-license=('MIT') # TODO: add LICENSE to the repo before publishing; confirm with owner
+# PLACEHOLDER — the license is an open decision (see README FAQ). Do not
+# publish until the owner sets one and the repo ships a LICENSE file.
+license=('MIT')
 depends=('python')
 optdepends=(
   'hyprland: gesture actions dispatch to a Hyprland compositor'

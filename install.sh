@@ -38,6 +38,7 @@ echo "Installing to $TARGET_DIR"
 run mkdir -p "$TARGET_DIR"
 run rm -rf "$TARGET_DIR/magicmouse" "$TARGET_DIR/bin"
 run cp -r "$SOURCE_DIR/magicmouse" "$SOURCE_DIR/bin" "$TARGET_DIR/"
+run find "$TARGET_DIR" -name __pycache__ -type d -exec rm -rf {} +
 run chmod +x "$TARGET_DIR/bin/omarchy-magic-mouse"
 
 run mkdir -p "$HOME/.local/bin"
@@ -50,7 +51,11 @@ run cp "$SOURCE_DIR/systemd/omarchy-magic-mouse.service" "$UNIT_DIR/"
 if command -v systemctl >/dev/null; then
   if run systemctl --user daemon-reload; then
     if [[ $ENABLE == 1 ]]; then
-      if run systemctl --user enable --now "$UNIT_NAME"; then
+      if run systemctl --user is-active --quiet "$UNIT_NAME" 2>/dev/null; then
+        # re-install over a running daemon must load the new code
+        run systemctl --user restart "$UNIT_NAME"
+        [[ $DRY_RUN == 1 ]] || echo "Service restarted to load the new code."
+      elif run systemctl --user enable --now "$UNIT_NAME"; then
         [[ $DRY_RUN == 1 ]] || echo "Service enabled and started."
       else
         echo "WARNING: could not enable $UNIT_NAME — run: systemctl --user enable --now $UNIT_NAME" >&2
@@ -68,7 +73,7 @@ if [[ $SYSTEM == 1 ]]; then
       /etc/udev/rules.d/99-omarchy-magic-mouse.rules
     run sudo install -Dm644 "$SOURCE_DIR/system/modules-load.d/omarchy-magic-mouse.conf" \
       /etc/modules-load.d/omarchy-magic-mouse.conf
-    run sudo usermod -aG input "$USER"
+    run sudo usermod -aG input "${USER:-$(id -un)}"
     run sudo udevadm control --reload-rules
     run sudo modprobe uinput 2>/dev/null || true
     [[ $DRY_RUN == 1 ]] || echo "System setup done. Log out and back in for the 'input' group to apply."

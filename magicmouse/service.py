@@ -6,16 +6,19 @@ stream; if the daemon dies the kernel releases every grab, so the hardware
 reverts to stock behaviour instead of going dead.
 """
 
+import errno
+import fcntl
 import os
 import select
 import signal
 import socket
 import sys
+import tempfile
 import time
 
 from . import evdev
 from .actions import ActionDispatcher
-from .config import MANAGEABLE_KINDS
+from .config import ConfigError, MANAGEABLE_KINDS, load_config
 from .pipeline import DevicePipeline, classify, should_manage
 
 RESCAN_INTERVAL = 2.0
@@ -37,6 +40,44 @@ def sd_notify(message):
         pass
 
 
+class InstanceLock:
+    """Advisory single-instance lock for the daemon.
+
+    Two daemons cannot share the grabbed devices — the second would fail
+    every grab and retry forever. ``flock`` is released by the kernel when
+    the holder dies, so there are no stale locks to clean up.
+    """
+
+    def __init__(self, path=None):
+        self.path = path or os.path.join(
+            os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir(),
+            "omarchy-magic-mouse.lock",
+        )
+        self._fd = None
+        self.error = None
+        self.already_locked = False
+
+    def acquire(self):
+        self.error = None
+        self.already_locked = False
+        try:
+            self._fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+        except OSError as error:
+            self.error = error
+            return False
+        try:
+            fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError as error:
+            if error.errno in (errno.EACCES, errno.EAGAIN):
+                self.already_locked = True
+            else:
+                self.error = error
+            os.close(self._fd)
+            self._fd = None
+            return False
+
+
 def _same_device(a, b):
     """Identity of a kernel input device: event numbers get recycled, so a
     managed path must be re-checked against what actually sits behind it."""
@@ -44,14 +85,39 @@ def _same_device(a, b):
 
 
 class Service:
-    def __init__(self, cfg, sink, dispatcher=None, log=None, clock=time.monotonic):
+    def __init__(self, cfg, sink, dispatcher=None, log=None, clock=time.monotonic, config_path=None, debug=False):
         self.cfg = cfg
         self.sink = sink
         self.dispatcher = dispatcher or ActionDispatcher(log=log or _stderr)
         self.log = log or _stderr
+        self.debug = debug
         self.clock = clock
+        self._config_path = config_path
         self._devices = {}  # path -> (Device, DevicePipeline)
+        self._by_fd = {}  # fileno -> (Device, DevicePipeline), rebuilt on churn
         self._stopping = False
+        self._reload_requested = False
+
+    def reload_config(self):
+        """SIGHUP contract: apply a valid config, keep the current one otherwise."""
+        try:
+            cfg = load_config(self._config_path)
+        except ConfigError as error:
+            self.log(f"config reload failed, keeping the current config: {error}")
+            return False
+        self.cfg = cfg
+        wanted = set(cfg["devices"]["manage"]) & set(MANAGEABLE_KINDS)
+        for path, (device, _pipeline) in list(self._devices.items()):
+            if not should_manage(device.info, wanted):
+                self._drop(path, "no longer managed under the new config")
+                continue
+            self._devices[path] = (
+                device,
+                DevicePipeline(device.info, cfg, self.sink, self.dispatcher, self.clock),
+            )
+        self._reindex()  # the fd map must point at the rebuilt pipelines
+        self.log("config reloaded")
+        return True
 
     # --- device management ----------------------------------------------------
 
@@ -60,6 +126,10 @@ class Service:
         present = set()
         for info in evdev.list_devices():
             if not should_manage(info, wanted):
+                self._debug(
+                    f"ignoring {info.path}: {info.name} "
+                    f"[kind={classify(info)}, bustype={info.bustype:#06x}]"
+                )
                 continue
             kind = classify(info)
             present.add(info.path)
@@ -80,11 +150,16 @@ class Service:
         for path in list(self._devices):
             if path not in present:
                 self._drop(path, "disappeared")
+        self._reindex()
 
     def _drop(self, path, reason):
         device, _pipeline = self._devices.pop(path)
         device.close()
         self.log(f"stopped managing {path}: {reason}")
+        self._reindex()
+
+    def _reindex(self):
+        self._by_fd = {device.fileno(): (device, pipeline) for device, pipeline in self._devices.values()}
 
     def list_managed(self):
         return [
@@ -97,13 +172,22 @@ class Service:
     def run_forever(self):
         signal.signal(signal.SIGTERM, self._handle_stop)
         signal.signal(signal.SIGINT, self._handle_stop)
-        signal.signal(signal.SIGCHLD, signal.SIG_IGN)  # action subprocesses reap
+        signal.signal(signal.SIGHUP, self._handle_reload)
+        # every action spawn owns a reap thread (see actions.py), so there is
+        # no SIGCHLD policy to set — ignoring SIGCHLD would break their waits
 
         self.scan()
+        if not self._devices:
+            self.log(
+                "no manageable devices found — see `omarchy-magic-mouse devices` and `doctor`"
+            )
         sd_notify("READY=1")
         last_scan = self.clock()
         try:
             while not self._stopping:
+                if self._reload_requested:
+                    self._reload_requested = False
+                    self.reload_config()
                 now = self.clock()
                 ticking = any(pipeline.needs_ticks() for _, pipeline in self._devices.values())
                 timeout = (
@@ -122,6 +206,7 @@ class Service:
                     now = self.clock()
                     for _, pipeline in self._devices.values():
                         pipeline.tick(now)
+                    self.sink.flush()
                 except OSError as error:
                     # sink (uinput) loss: exit cleanly, systemd restarts us
                     self.log(f"stopping: {error}")
@@ -136,21 +221,31 @@ class Service:
             self.sink.close()
 
     def _pump(self, fd):
-        for path, (device, pipeline) in list(self._devices.items()):
-            if device.fileno() != fd:
-                continue
-            try:
-                events = device.read_events()
-            except OSError as error:
-                self._drop(path, str(error))
-                return
-            for event in events:
-                pipeline.process(event)
+        entry = self._by_fd.get(fd)
+        if entry is None:
             return
+        device, pipeline = entry
+        try:
+            events = device.read_events()
+        except OSError as error:
+            self._drop(device.info.path, str(error))
+            return
+        for event in events:
+            pipeline.process(event)
+        self.sink.flush()
 
     def _handle_stop(self, _signum, _frame):
         self._stopping = True
 
+    def _handle_reload(self, _signum, _frame):
+        self._reload_requested = True
+
+    def _debug(self, message):
+        if self.debug:
+            self.log(f"debug: {message}")
+
 
 def _stderr(message):
-    print(f"omarchy-magic-mouse: {message}", file=sys.stderr, flush=True)
+    # journald already timestamps its records; terminal runs get one here
+    stamp = "" if os.environ.get("JOURNAL_STREAM") else time.strftime("%H:%M:%S ")
+    print(f"omarchy-magic-mouse: {stamp}{message}", file=sys.stderr, flush=True)

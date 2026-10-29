@@ -3,7 +3,7 @@ import unittest
 from magicmouse.config import default_config
 from magicmouse.touch import Gesture, ScrollDelta, ScrollEnd, Tap, TouchEngine
 
-from helpers import RES_X, RES_Y, TouchBuilder, feed
+from tests.helpers import RES_X, RES_Y, TouchBuilder, feed
 
 
 def make_engine(fingers=2, enabled=True):

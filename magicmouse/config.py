@@ -86,7 +86,15 @@ DEFAULTS = {
 
 
 class ConfigError(ValueError):
-    pass
+    """Configuration is unusable; ``problems`` lists every issue found."""
+
+    def __init__(self, message, problems=None, path=None):
+        self.problems = list(problems) if problems is not None else [message]
+        self.path = path
+        super().__init__(message)
+
+    def __str__(self):
+        return "; ".join(self.problems) if len(self.problems) > 1 else self.problems[0]
 
 
 def default_config():
@@ -112,6 +120,15 @@ def _reject_constant(name):
     # Python's json accepts NaN/Infinity; they are not valid JSON and would
     # poison the engine's arithmetic
     raise ValueError(f"{name} is not a valid JSON number")
+
+
+def _no_duplicate_keys(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError(f"duplicate key {key!r} (the file would silently take the last)")
+        obj[key] = value
+    return obj
 
 
 def _is_number(value):
@@ -184,6 +201,11 @@ def validate(cfg):
 
     commands = cfg["commands"]
     for name, command in commands.items():
+        if name not in BUILTIN_ACTIONS:
+            errors.append(
+                "commands: unknown action %r (valid: %s)" % (name, ", ".join(BUILTIN_ACTIONS))
+            )
+            continue
         if name != "none" and not _is_command(command):
             errors.append(f"commands.{name} must be a non-empty list of strings")
         if name == "none" and command != []:
@@ -206,7 +228,7 @@ def validate(cfg):
             errors.append(f"gestures.map.{gesture}: must be an action name or an object with a command")
 
     if errors:
-        raise ConfigError("; ".join(errors))
+        raise ConfigError("configuration is invalid", problems=errors)
     return cfg
 
 
@@ -216,17 +238,28 @@ def load_config(path=None):
     cfg = default_config()
     if os.path.exists(path):
         try:
-            with open(path, encoding="utf-8") as handle:
-                override = json.load(handle, parse_constant=_reject_constant)
+            # utf-8-sig: tolerate the BOM that GUI editors put in "UTF-8" files
+            with open(path, encoding="utf-8-sig") as handle:
+                override = json.load(
+                    handle,
+                    parse_constant=_reject_constant,
+                    object_pairs_hook=_no_duplicate_keys,
+                )
         except ValueError as error:
             raise ConfigError(f"{path}: invalid JSON: {error}") from error
+        except OSError as error:
+            raise ConfigError(f"{path}: cannot read config: {error}") from error
         if not isinstance(override, dict):
             raise ConfigError(f"{path}: top level must be a JSON object")
         try:
             _deep_merge(cfg, override)
         except ConfigError as error:
             raise ConfigError(f"{path}: {error}") from error
-    return validate(cfg)
+    try:
+        return validate(cfg)
+    except ConfigError as error:
+        error.path = error.path or path
+        raise
 
 
 def resolve_actions(cfg):
